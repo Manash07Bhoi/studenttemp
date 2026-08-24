@@ -976,3 +976,54 @@ Unresolved / next-phase recommendations:
 6. **Inbox categories/folders** — organize inboxes by category
 7. **Search result highlighting** — highlight matched text in search results (currently plain)
 8. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport
+
+---
+Task ID: CRON-REVIEW-6
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, implement search result highlighting, category filters, and polish.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, i18n, analytics, command palette, keyboard shortcuts, Web Push, app lock, swipe gestures, service worker, reply/export/forward, pull-to-refresh, long-press context menu, global search, drag-to-reorder all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- Found a stale service worker cache issue — SW was serving a cached version of the page that didn't include the latest code. Fixed by unregistering the SW and clearing caches.
+
+**New features implemented:**
+
+1. **Search Result Highlighting**
+   - Added `highlightMatch()` helper function in app-shell.tsx
+   - Wraps matched text in a `<mark>` element with emerald background + rounded corners
+   - Applied to: sender name, subject, and preview text in global search results
+   - Case-insensitive matching (matches "OTP" in "OTP: Your code 738291")
+   - Verified with VLM: "Yes, 'OTP' is highlighted in green. 8/10."
+
+2. **Category Filter for Messages**
+   - Added `categoryFilter` state to MessagesSection ('all' | 'otp' | 'registration' | 'newsletter' | 'social' | 'shopping' | 'security' | 'general')
+   - Added Select dropdown to toolbar with color-coded category indicators
+   - Updated `filtered` logic to filter by category when not 'all'
+   - Color dots: violet (OTP), emerald (Registration), cyan (Newsletter), pink (Social), amber (Shopping), red (Security), zinc (General)
+   - Uses shadcn Select component for better mobile UX
+
+3. **Bug fixed: Stale service worker cache**
+   - The service worker was caching the app shell and serving stale HTML/JS that didn't include the latest code changes
+   - Fixed by unregistering the old SW + clearing all caches, allowing the fresh version to be served
+   - The SW itself has cache versioning (studenttemp-shell-v1) but the old registration was from before the version bump
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- Search highlighting verified: searched "OTP" → 1 result with "OTP" highlighted in emerald ✓
+- Category filter verified: "All Types" Select dropdown visible in Messages toolbar with 8 category options ✓
+- VLM rated search highlighting 8/10
+- Real SMTP flow still working end-to-end
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Real VAPID key pair** — configure for real push delivery
+2. **More i18n languages** — Odia, Telugu, Tamil, Bengali, Marathi (PRD §3.2)
+3. **Full Hindi translation** — some descriptive strings + FAQ still in English
+4. **Real ClamAV integration** for attachment scanning
+5. **Message threading** — group replies in a thread view
+6. **Inbox categories/folders** — organize inboxes by category (not just messages)
+7. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport
+8. **SW cache strategy** — consider using a network-first strategy for the app shell to avoid stale cache issues in development

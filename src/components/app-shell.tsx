@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useCallback, useState } from 'react'
+import { useEffect, useMemo, useCallback, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, Mail, AtSign, Settings as SettingsIcon, Info, Shield, Activity, Zap, Plus, Lock, Command as CommandIcon, BarChart3, Search } from 'lucide-react'
@@ -505,11 +505,11 @@ function GlobalSearchInline() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-medium truncate">{result.fromName as string}</span>
-                            <span className="text-[11px] text-muted-foreground shrink-0">{result.inboxEmail as string}</span>
+                            <span className="text-sm font-medium truncate">{highlightMatch(result.fromName as string, query)}</span>
+                            <span className="text-[11px] text-muted-foreground shrink-0 font-mono">{result.inboxEmail as string}</span>
                           </div>
-                          <p className="mt-0.5 text-sm truncate font-semibold">{result.subject as string}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground truncate">{result.previewText as string}</p>
+                          <p className="mt-0.5 text-sm truncate font-semibold">{highlightMatch(result.subject as string, query)}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground truncate">{highlightMatch(result.previewText as string, query)}</p>
                         </div>
                       </div>
                     </button>
@@ -521,5 +521,23 @@ function GlobalSearchInline() {
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+// ---------- Search result highlighting ----------
+function highlightMatch(text: string, query: string): ReactNode {
+  if (!query || !text) return text
+  const lower = text.toLowerCase()
+  const q = query.toLowerCase()
+  const idx = lower.indexOf(q)
+  if (idx === -1) return text
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-emerald-500/25 text-emerald-800 dark:text-emerald-200 rounded px-0.5 font-semibold">
+        {text.slice(idx, idx + q.length)}
+      </mark>
+      {text.slice(idx + q.length)}
+    </>
   )
 }

@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
@@ -82,6 +83,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const activeInbox = inboxes.find((i) => i.id === activeInboxId)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [forwardingMsgId, setForwardingMsgId] = useState<string | null>(null)
 
   // Search input ref — focused by the `/` keyboard shortcut.
@@ -145,6 +147,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const filtered = messages.filter((m) => {
     if (filter === 'unread' && m.isRead) return false
     if (filter === 'starred' && !m.isStarred) return false
+    if (categoryFilter !== 'all' && m.category !== categoryFilter) return false
     if (query) {
       const q = query.toLowerCase()
       return (
@@ -278,6 +281,21 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
               <DropdownMenuItem onClick={() => setFilter('starred')}>Starred only</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="h-8 w-[130px] text-sm capitalize">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="otp">OTP</SelectItem>
+              <SelectItem value="registration">Registration</SelectItem>
+              <SelectItem value="newsletter">Newsletter</SelectItem>
+              <SelectItem value="social">Social</SelectItem>
+              <SelectItem value="shopping">Shopping</SelectItem>
+              <SelectItem value="security">Security</SelectItem>
+              <SelectItem value="general">General</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
