@@ -10,7 +10,7 @@ import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
   CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send, MessagesSquare,
-  ChevronsDownUp,
+  ChevronsDownUp, CheckSquare, Check,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -87,6 +87,8 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [threadView, setThreadView] = useState(false)
   const [forwardingMsgId, setForwardingMsgId] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Search input ref — focused by the `/` keyboard shortcut.
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -267,6 +269,47 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
     },
   })
 
+  // ---- Bulk actions ----
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const selectAll = () => setSelectedIds(new Set(filtered.map(m => m.id)))
+  const deselectAll = () => setSelectedIds(new Set())
+  const bulkMarkRead = async () => {
+    for (const id of selectedIds) {
+      await api.updateMessage(id, { isRead: true }).catch(() => {})
+    }
+    queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+    toast.success(`Marked ${selectedIds.size} messages as read`)
+    setSelectedIds(new Set())
+    setSelectMode(false)
+  }
+  const bulkStar = async () => {
+    for (const id of selectedIds) {
+      await api.updateMessage(id, { isStarred: true }).catch(() => {})
+    }
+    queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+    toast.success(`Starred ${selectedIds.size} messages`)
+    setSelectedIds(new Set())
+    setSelectMode(false)
+  }
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selectedIds.size} messages? This cannot be undone.`)) return
+    for (const id of selectedIds) {
+      await api.deleteMessage(id).catch(() => {})
+      removeMessage(id)
+    }
+    queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+    toast.success(`Deleted ${selectedIds.size} messages`)
+    setSelectedIds(new Set())
+    setSelectMode(false)
+  }
+
   if (!activeInbox) {
     return (
       <EmptyState
@@ -373,24 +416,81 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
         {/* List */}
         <div className="rounded-xl border border-border/60 bg-card overflow-hidden order-1">
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {filtered.length} {filtered.length === 1 ? 'message' : 'messages'}
-            </span>
-            {messages.filter((m) => !m.isRead).length > 0 && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs gap-1"
-                onClick={() => {
-                  messages.filter((m) => !m.isRead).forEach((m) =>
-                    updateMutation.mutate({ id: m.id, data: { isRead: true } })
-                  )
-                }}
-              >
-                <CheckCheck className="h-3 w-3" /> Mark all read
-              </Button>
+            {selectMode ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-primary">
+                  {selectedIds.size} selected
+                </span>
+                <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={selectAll}>Select all</Button>
+                <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={deselectAll}>Clear</Button>
+              </div>
+            ) : (
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {filtered.length} {filtered.length === 1 ? 'message' : 'messages'}
+              </span>
             )}
+            <div className="flex items-center gap-1">
+              {!selectMode ? (
+                <>
+                  {messages.filter((m) => !m.isRead).length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs gap-1"
+                      onClick={() => {
+                        messages.filter((m) => !m.isRead).forEach((m) =>
+                          updateMutation.mutate({ id: m.id, data: { isRead: true } })
+                        )
+                      }}
+                    >
+                      <CheckCheck className="h-3 w-3" /> Mark all read
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => { setSelectMode(true); setSelectedIds(new Set()) }}
+                    title="Select messages for bulk actions"
+                  >
+                    <CheckSquare className="h-3 w-3" /> Select
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }}
+                >
+                  <X className="h-3 w-3" /> Exit
+                </Button>
+              )}
+            </div>
           </div>
+          {/* Bulk action bar */}
+          <AnimatePresence>
+            {selectMode && selectedIds.size > 0 && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden border-b border-border/60 bg-emerald-500/5"
+              >
+                <div className="flex items-center gap-2 px-4 py-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={bulkMarkRead}>
+                    <MailOpen className="h-3 w-3" /> Mark read
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={bulkStar}>
+                    <Star className="h-3 w-3" /> Star
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-500 hover:bg-red-500/10" onClick={bulkDelete}>
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <ScrollArea className="h-[55vh] lg:h-[65vh] scrollbar-thin">
             <PullToRefresh onRefresh={async () => { await refetch() }}>
             {isFetching && messages.length === 0 ? (
@@ -435,7 +535,11 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                       active={openMessageId === msg.id}
                       selected={selectedMessageId === msg.id && openMessageId !== msg.id}
                       fresh={freshMessageId === msg.id}
+                      selectMode={selectMode}
+                      isSelected={selectedIds.has(msg.id)}
+                      onToggleSelect={() => toggleSelect(msg.id)}
                       onOpen={() => {
+                        if (selectMode) { toggleSelect(msg.id); return }
                         setOpenMessageId(msg.id)
                         setSelectedMessageId(msg.id)
                       }}
@@ -509,12 +613,15 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
 //   • prefers-reduced-motion → drag disabled entirely; hover buttons still work.
 //   • tap (no drag) → onOpen(). drag → suppress click.
 function MessageListItem({
-  msg, active, selected, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport, onForward,
+  msg, active, selected, fresh, selectMode, isSelected, onToggleSelect, onOpen, onToggleRead, onToggleStar, onDelete, onReport, onForward,
 }: {
   msg: MessageSummary
   active: boolean
   selected: boolean
   fresh: boolean
+  selectMode?: boolean
+  isSelected?: boolean
+  onToggleSelect?: () => void
   onOpen: () => void
   onToggleRead: () => void
   onToggleStar: () => void
@@ -675,6 +782,7 @@ function MessageListItem({
             : selected
               ? 'bg-emerald-500/8 ring-1 ring-inset ring-emerald-500/30'
               : 'hover:bg-accent/40',
+          isSelected && 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/40',
           fresh && 'bg-emerald-500/5'
         )}
       >
@@ -691,6 +799,17 @@ function MessageListItem({
           aria-haspopup={showContextMenu ? 'menu' : undefined}
           aria-expanded={showContextMenu}
         >
+          {selectMode && (
+            <div
+              className={cn(
+                'grid h-5 w-5 shrink-0 place-items-center rounded border-2 transition-colors mt-2.5',
+                isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-muted-foreground/30'
+              )}
+              onClick={(e) => { e.stopPropagation(); onToggleSelect?.() }}
+            >
+              {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+            </div>
+          )}
           <div className="relative shrink-0">
             <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
               {msg.fromName[0]?.toUpperCase() || '?'}

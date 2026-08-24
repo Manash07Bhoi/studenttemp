@@ -1199,3 +1199,51 @@ Unresolved / next-phase recommendations:
 6. **Thread unread indicator** — could show which threads have unread messages with a dot on the thread header
 7. **Bulk actions** — select multiple messages and delete/mark-read/star in bulk
 8. **Message snooze** — temporarily hide a message and bring it back later
+
+---
+Task ID: CRON-REVIEW-10
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, implement bulk message actions, polish.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, 7 i18n languages, analytics, command palette, keyboard shortcuts, Web Push, app lock, swipe gestures, service worker, reply/export/forward, pull-to-refresh, long-press context menu, global search, drag-to-reorder, search highlighting, category filters, message threading, thread expand/collapse all all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- Sent 3 real emails ("Bulk action test 1/2/3"), verified real-time delivery
+
+**New features implemented:**
+
+1. **Bulk Message Actions (select multiple + delete/mark-read/star)**
+   - Added `selectMode` (boolean) and `selectedIds` (Set<string>) state to MessagesSection
+   - Added "Select" toggle button to list header (CheckSquare icon)
+   - When in select mode:
+     - Each message card shows a checkbox (emerald when selected, border-only when not)
+     - List header shows "N selected" count + "Select all" + "Clear" buttons
+     - "Exit" button to leave select mode
+     - Clicking a message toggles its selection instead of opening it
+     - Selected cards get emerald ring highlight
+   - Bulk action bar (slides down with spring animation) shows when ≥1 message selected:
+     - "Mark read" — marks all selected as read via real API calls
+     - "Star" — stars all selected via real API calls
+     - "Delete" — deletes all selected (with confirm dialog) via real API calls
+   - All bulk actions show success toast with count, then exit select mode
+   - Added `Check`, `CheckSquare` to lucide-react imports
+   - Updated MessageListItem props: `selectMode`, `isSelected`, `onToggleSelect`
+   - Updated `onOpen` handler: in select mode, clicking toggles selection instead of opening reader
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- Bulk select verified: "Select" button visible in toolbar, clicking enters select mode, checkboxes appear on cards, clicking a message selects it, bulk action bar appears with Mark read/Star/Delete ✓
+- Real SMTP flow still working end-to-end
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Real VAPID key pair** — configure for real push delivery
+2. **Full translations** — only ~40 keys per language; remaining ~140 keys fall back to English
+3. **Real ClamAV integration** for attachment scanning
+4. **Inbox categories/filters** on Addresses page — filter inboxes by category
+5. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport
+6. **Message snooze** — temporarily hide a message and bring it back later
+7. **Bulk action keyboard shortcut** — e.g., 'Ctrl+A' to select all, 'Delete' to bulk delete
+8. **Select mode indicator** — could add a persistent banner showing "X messages selected" at the bottom of the screen
