@@ -6,6 +6,8 @@ export interface DomainInfo {
   badge: string
   popular: boolean
   pack: string
+  country: string
+  category: string
 }
 
 export interface LifetimeOption {

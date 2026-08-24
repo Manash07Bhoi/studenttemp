@@ -209,7 +209,30 @@ export function AboutSection({ triggerGenerate: _triggerGenerate }: { triggerGen
         </Button>
       </section>
 
-      {/* Footer */}
+      {/* Credits & Footer */}
+      <section className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-cyan-500/5 p-6 text-center">
+        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-4">
+          <Sparkles className="h-3.5 w-3.5" /> Credits
+        </div>
+        <h2 className="text-xl font-bold">Made with <Heart className="inline h-4 w-4 text-red-500 fill-red-500" /> by Roshan</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          Designed, developed, and maintained by <span className="font-semibold text-foreground">Roshan</span>.
+          Built using Next.js, Prisma, Socket.IO & shadcn/ui.
+        </p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <Badge variant="outline" className="gap-1.5 bg-card">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Developer: Roshan
+          </Badge>
+          <Badge variant="outline" className="gap-1.5 bg-card">
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-500" /> Privacy-first
+          </Badge>
+          <Badge variant="outline" className="gap-1.5 bg-card">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Open Source
+          </Badge>
+        </div>
+      </section>
+
+      {/* Disclaimer footer */}
       <div className="rounded-xl border border-border/60 bg-muted/30 p-4 text-center text-xs text-muted-foreground">
         <p className="flex items-center justify-center gap-1.5">
           Built with <Heart className="h-3 w-3 text-red-500 fill-red-500" /> using Next.js, Prisma, Socket.IO & shadcn/ui

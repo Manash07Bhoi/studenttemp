@@ -31,7 +31,9 @@ model Session {
 model Domain {
   id              String   @id @default(cuid())
   domain          String   @unique
-  pack            String   @default("standard") // standard | indian_student
+  pack            String   @default("standard") // standard | indian_student | international | privacy | quick
+  country         String   @default("global") // global | india | us | uk | etc
+  category        String   @default("general") // general | student | developer | privacy | testing
   mxEnabled       Boolean  @default(true)
   active          Boolean  @default(true) // kill-switch
   reputationScore Int      @default(100)

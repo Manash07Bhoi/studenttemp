@@ -8,23 +8,33 @@ import { cookies } from 'next/headers'
 // These are the only domains this service will ever accept mail for.
 // Loaded from the real Domains table; this fallback is used only for SSR before DB read.
 export const FALLBACK_DOMAINS = [
-  { domain: 'studentbox.in', label: 'StudentBox', badge: 'Most Popular', popular: true, pack: 'indian_student' },
-  { domain: 'campusmail.in', label: 'CampusMail', badge: '', popular: false, pack: 'indian_student' },
-  { domain: 'examprep.in', label: 'ExamPrep', badge: 'New', popular: false, pack: 'indian_student' },
-  { domain: 'devtest.in', label: 'DevTest', badge: '', popular: false, pack: 'standard' },
-  { domain: 'quickmail.in', label: 'QuickMail', badge: '', popular: false, pack: 'standard' },
+  { domain: 'studentbox.in', label: 'StudentBox', badge: 'Most Popular', popular: true, pack: 'indian_student', country: 'india', category: 'student' },
+  { domain: 'campusmail.in', label: 'CampusMail', badge: '', popular: false, pack: 'indian_student', country: 'india', category: 'student' },
+  { domain: 'examprep.in', label: 'ExamPrep', badge: '', popular: false, pack: 'indian_student', country: 'india', category: 'student' },
+  { domain: 'devtest.in', label: 'DevTest', badge: '', popular: false, pack: 'standard', country: 'india', category: 'developer' },
+  { domain: 'quickmail.in', label: 'QuickMail', badge: '', popular: false, pack: 'standard', country: 'india', category: 'general' },
 ] as const
 
 export async function getDomains() {
   const rows = await db.domain.findMany({ where: { active: true }, orderBy: { reputationScore: 'desc' } })
   if (rows.length === 0) return FALLBACK_DOMAINS
-  return rows.map((d) => ({
-    domain: d.domain,
-    label: d.domain.split('.')[0].charAt(0).toUpperCase() + d.domain.split('.')[0].slice(1),
-    badge: d.pack === 'indian_student' ? 'India Pack' : '',
-    popular: d.domain === 'studentbox.in',
-    pack: d.pack,
-  }))
+  return rows.map((d) => {
+    const label = d.domain.split('.')[0].charAt(0).toUpperCase() + d.domain.split('.')[0].slice(1)
+    let badge = ''
+    if (d.domain === 'studentbox.in') badge = 'Most Popular'
+    else if (d.pack === 'indian_student') badge = 'India'
+    else if (d.pack === 'international') badge = 'Global'
+    else if (d.pack === 'privacy') badge = 'Privacy'
+    return {
+      domain: d.domain,
+      label,
+      badge,
+      popular: d.domain === 'studentbox.in',
+      pack: d.pack,
+      country: d.country,
+      category: d.category,
+    }
+  })
 }
 
 export async function getDomainRow(domain: string) {

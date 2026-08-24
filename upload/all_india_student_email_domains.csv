@@ -1,0 +1,40 @@
+Category,Domain / Pattern,Target Institution Type,Example Email Format
+Core Root Domain,*.ac.in,All Higher Education / Degree Colleges,student@college.ac.in
+Core Root Domain,*.edu.in,"Schools, Boards, and Autonomous Institutes",student@school.edu.in
+Core Root Domain,*.res.in,Research Institutions & Fellowships,scholar@inst.res.in
+Common Subdomain,student.*.ac.in,"General Degree Colleges (e.g., Delhi University, Mumbai University)",rollno@student.du.ac.in
+Common Subdomain,stud.*.ac.in,Technical and Engineering Institutes,id@stud.vnit.ac.in
+Common Subdomain,my.*.ac.in,Microsoft Office 365 Cloud-Enabled Campuses,name@my.vit.ac.in
+Common Subdomain,mail.*.ac.in,Google Workspace / Gmail Managed Campuses,username@mail.bits-pilani.ac.in
+Common Subdomain,g.*.ac.in,Google Workspace Managed Campuses (Alternative),name@g.chd.edu.in
+Common Subdomain,smail.*.ac.in,IIT Madras / Specialized Institutional Mail Servers,rollno@smail.iitm.ac.in
+Common Subdomain,pg.*.ac.in,Post-Graduate & PhD Specific Research Networks,researcher@pg.jnu.ac.in
+Top IITs,*.iitb.ac.in,IIT Bombay (Indian Institute of Technology),rollno@iitb.ac.in
+Top IITs,*.iitd.ac.in,IIT Delhi (Indian Institute of Technology),entryno@iitd.ac.in
+Top IITs,*.iitm.ac.in,IIT Madras (Indian Institute of Technology),rollno@smail.iitm.ac.in
+Top IITs,*.iitkgp.ac.in,IIT Kharagpur (Indian Institute of Technology),rollno@iitkgp.ac.in
+Top IITs,*.iitk.ac.in,IIT Kanpur (Indian Institute of Technology),username@iitk.ac.in
+Top NITs,*.nitt.edu,NIT Trichy (National Institute of Technology),rollno@nitt.edu
+Top NITs,*.nitrkl.ac.in,NIT Rourkela (National Institute of Technology),rollno@nitrkl.ac.in
+Top NITs,*.vnit.ac.in,VNIT Nagpur (Visvesvaraya National Institute),id@stud.vnit.ac.in
+Top NITs,*.nitk.ac.in,NIT Surathkal (National Institute of Technology),name@nitk.edu.in
+IIITs & B-Schools,*.iiita.ac.in,IIIT Allahabad (Indian Institute of Information Tech),enroll@iiita.ac.in
+IIITs & B-Schools,*.iiitd.ac.in,IIIT Delhi (Indraprastha Institute of Info Tech),name@iiitd.ac.in
+IIITs & B-Schools,*.iimb.ac.in,IIM Bangalore (Indian Institute of Management),name@iimb.ac.in
+IIITs & B-Schools,*.iima.ac.in,IIM Ahmedabad (Indian Institute of Management),name@iima.ac.in
+Central & State Universities,*.du.ac.in,University of Delhi (DU),name@student.du.ac.in
+Central & State Universities,*.jnu.ac.in,Jawaharlal Nehru University (JNU),username@jnu.ac.in
+Central & State Universities,*.bhu.ac.in,Banaras Hindu University (BHU),stud@bhu.ac.in
+Central & State Universities,*.mu.ac.in,University of Mumbai,rollno@mu.ac.in
+Central & State Universities,*.unipune.ac.in,Savitribai Phule Pune University,name@unipune.ac.in
+Private Universities,*.bits-pilani.ac.in,"BITS Pilani (Pilani, Goa, Hyderabad Campuses)",f202XXXX@pilani.bits-pilani.ac.in
+Private Universities,*.vit.ac.in,VIT Vellore (Vellore Institute of Technology),name.stud202X@vitstudent.ac.in
+Private Universities,*.srmist.edu.in,SRM Institute of Science and Technology,regno@srmist.edu.in
+Private Universities,*.amity.edu,Amity University (All National Campuses),enrollment@amity.edu
+Medical Institutes,*.aiims.edu,AIIMS (All India Institute of Medical Sciences),name@aiims.edu
+Medical Institutes,*.pgimer.edu.in,PGIMER Chandigarh,stud@pgimer.edu.in
+Medical Institutes,*.cmcvellore.ac.in,"Christian Medical College, Vellore",rollno@cmcvellore.ac.in
+Schools & K-12 Boards,*.kvs.gov.in,Kendriya Vidyalaya Sangathan (Central Schools Staff/Students),studentname@kvs.gov.in
+Schools & K-12 Boards,*.navodaya.gov.in,Jawahar Navodaya Vidyalayas,student@navodaya.gov.in
+Schools & K-12 Boards,*.dps.in,Delhi Public School Society Network,admissionno@dps.in
+Schools & K-12 Boards,*.[schoolname].edu.in,Private/State K-12 Schools across India,student@schoolname.edu.in

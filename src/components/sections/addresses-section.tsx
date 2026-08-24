@@ -265,12 +265,34 @@ function QuickNewDialog({
             <Label>Domain</Label>
             <Select value={domain} onValueChange={setDomain}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {domains.map((d) => (
-                  <SelectItem key={d.domain} value={d.domain}>
-                    @{d.domain} {d.badge && <span className="text-xs text-emerald-500 ml-1">{d.badge}</span>}
-                  </SelectItem>
-                ))}
+              <SelectContent className="max-h-[300px]">
+                {(() => {
+                  const packs: Record<string, string> = {
+                    indian_student: '🇮🇳 India Student',
+                    standard: '🇮🇳 India General',
+                    international: '🌍 International',
+                    privacy: '🔒 Privacy',
+                  }
+                  const grouped: Record<string, typeof domains> = {}
+                  for (const d of domains) {
+                    const key = d.pack || 'standard'
+                    if (!grouped[key]) grouped[key] = []
+                    grouped[key].push(d)
+                  }
+                  return Object.entries(grouped).map(([pack, packDomains]) => (
+                    <div key={pack}>
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {packs[pack] || pack}
+                      </div>
+                      {packDomains.map((d) => (
+                        <SelectItem key={d.domain} value={d.domain} className="gap-1">
+                          <span className="font-mono text-xs">@{d.domain}</span>
+                          {d.badge && <span className="text-[9px] text-emerald-500 font-semibold">{d.badge}</span>}
+                        </SelectItem>
+                      ))}
+                    </div>
+                  ))
+                })()}
               </SelectContent>
             </Select>
           </div>

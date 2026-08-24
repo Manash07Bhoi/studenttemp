@@ -2,6 +2,7 @@
   "name": "StudentTemp — Disposable Email",
   "short_name": "StudentTemp",
   "description": "Privacy-first temporary email for students, developers, and testers.",
+  "developer": "Roshan",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f1f1c",

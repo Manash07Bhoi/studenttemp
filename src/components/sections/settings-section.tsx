@@ -132,10 +132,33 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
               <Label>Default domain</Label>
               <Select value={settings.defaultDomain} onValueChange={(v) => update({ defaultDomain: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {domainsData?.domains.map((d) => (
-                    <SelectItem key={d.domain} value={d.domain}>@{d.domain}</SelectItem>
-                  ))}
+                <SelectContent className="max-h-[300px]">
+                  {domainsData?.domains && (() => {
+                    const packs: Record<string, string> = {
+                      indian_student: '🇮🇳 India Student',
+                      standard: '🇮🇳 India General',
+                      international: '🌍 International',
+                      privacy: '🔒 Privacy',
+                    }
+                    const grouped: Record<string, typeof domainsData.domains> = {}
+                    for (const d of domainsData.domains) {
+                      const key = d.pack || 'standard'
+                      if (!grouped[key]) grouped[key] = []
+                      grouped[key].push(d)
+                    }
+                    return Object.entries(grouped).map(([pack, packDomains]) => (
+                      <div key={pack}>
+                        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          {packs[pack] || pack}
+                        </div>
+                        {packDomains.map((d) => (
+                          <SelectItem key={d.domain} value={d.domain} className="gap-1">
+                            <span className="font-mono text-xs">@{d.domain}</span>
+                          </SelectItem>
+                        ))}
+                      </div>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>

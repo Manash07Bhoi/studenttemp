@@ -1,0 +1,21 @@
+Category,Domain / Subdomain Pattern,Description / Example Usage
+National Domain Extensions,*.ac.in,Standard official root domain for all Indian higher education and universities.
+National Domain Extensions,*.edu.in,"Root domain used by schools, boards, and select engineering/management institutes."
+National Domain Extensions,*.res.in,"Reserved exclusively for premium Indian research organizations (e.g., ISI, IISc variants)."
+Common Student Subdomains,student.*.ac.in,"Most widely used prefix separating student inboxes (e.g., name@student.delhiuniversity.ac.in)."
+Common Student Subdomains,stud.*.ac.in,"Short form variation used by technical colleges (e.g., studentname@stud.institute.ac.in)."
+Common Student Subdomains,my.*.ac.in,Commonly deployed via Microsoft Office 365 campus cloud setups.
+Common Student Subdomains,mail.*.edu.in,Commonly deployed via older Google Workspace or legacy institute servers.
+Common Student Subdomains,g.*.ac.in / pg.*.ac.in,Used to segment undergraduate Google cloud accounts from post-graduate (pg) accounts.
+Top IITs Email Patterns,@iitb.ac.in,IIT Bombay - often uses deep subdomains like @iitb.ac.in or department branches.
+Top IITs Email Patterns,@iitd.ac.in,IIT Delhi - standard layout for scholars and research students.
+Top IITs Email Patterns,@iitm.ac.in,IIT Madras - uses student webmail systems.
+Top IITs Email Patterns,@iitkgp.ac.in,IIT Kharagpur - utilizes ERP integrated student emails.
+Top IITs Email Patterns,@iitk.ac.in,IIT Kanpur - structured student webmail login domains.
+Top NITs & IIITs Email Patterns,@nitrkl.ac.in,NIT Rourkela - standard technical institute domain.
+Top NITs & IIITs Email Patterns,@nitt.edu,NIT Trichy - one of the few prominent NITs utilizing the direct root .edu variant.
+Top NITs & IIITs Email Patterns,@iiita.ac.in,IIIT Allahabad - classic Indian Institute of Information Technology format.
+Central & State Universities,@du.ac.in / @*.du.ac.in,Delhi University - student emails mapped directly or via custom college subdomains.
+Central & State Universities,@jnu.ac.in,Jawaharlal Nehru University - research and academic student mail setups.
+Central & State Universities,@bhu.ac.in,Banaras Hindu University - central university academic platform addresses.
+Central & State Universities,@bits-pilani.ac.in,"BITS Pilani - handles domestic campuses (Pilani, Goa, Hyderabad) via unified cloud mail."

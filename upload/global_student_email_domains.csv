@@ -1,0 +1,33 @@
+Region/Country,Domain/Extension,Type,Description
+United States / Global,.edu,Root,"Standard for all accredited US colleges, universities, and community colleges."
+United States,student.[university].edu,Subdomain,Standard student routing used by dense public state universities.
+United States,mail.[university].edu,Subdomain,Commonly used for student-specific cloud email platforms.
+United States,my.[university].edu,Subdomain,Single Sign-On (SSO) and portal email layout for student inboxes.
+United States,g.[university].edu,Subdomain,Google Workspace for Education instance for students.
+United States,.k12.[state].us,Root/Sub,"Public K-12 school districts (e.g., .k12.ny.us, .k12.ca.us)."
+United Kingdom,.ac.uk,Root,"Standard academic extension for higher education, universities, and research."
+United Kingdom,uni.[university].ac.uk,Subdomain,Dedicated undergraduate/postgraduate student subdomains.
+United Kingdom,live.[university].ac.uk,Subdomain,Microsoft Exchange/Outlook hosted student university emails.
+United Kingdom,.sch.uk,Root,Standard extension reserved for primary and secondary schools.
+Canada,.edu.ca,Root,Academic extension used by multiple colleges and technical institutes.
+Canada,.ca,Root,"Many top Canadian universities use standard .ca (e.g., uoft.ca, ubc.ca)."
+Canada,myumanitoba.ca,Example,Student variant mapping for primary Canadian university extensions.
+Australia,.edu.au,Root,"Standard educational domain for universities, TAFEs, and schools."
+Australia,student.[uni].edu.au,Subdomain,"Separated student email domain architecture (e.g., UNSW, USYD)."
+New Zealand,.ac.nz,Root,Academic extension for universities and tertiary institutions.
+New Zealand,.school.nz,Root,Standard root extension for primary and secondary education.
+Germany,.de,Root,"Universities use standard country code roots (e.g., uni-heidelberg.de, tum.de)."
+Germany,stud.[uni].de,Subdomain,Standard student identifier subdomain across German universities.
+France,.fr,Root,"Universities use .fr or specialized subdomains (e.g., sorbonne-universite.fr)."
+France,etu.[uni].fr,Subdomain,"Short for 'Etudiant', the absolute standard student prefix in France."
+Netherlands,student.[uni].nl,Subdomain,Standard student routing for Dutch research universities.
+Ireland,.edu.ie / .ie,Root,"Higher education institutional domains (e.g., tcd.ie)."
+Spain,alumnos.[uni].es,Subdomain,Dedicated student subdomain extension meaning 'alumni/students'.
+Singapore,.edu.sg,Root,"Standard educational domain for universities (NUS, NTU) and polytechnics."
+Japan,.ac.jp,Root,Standard academic extension for higher education and universities.
+South Korea,.ac.kr,Root,Academic root domain for all national and private universities.
+China,.edu.cn,Root,Standard educational domain architecture across mainland China.
+United Arab Emirates,.ac.ae / .edu,Root,Higher education framework domains in the UAE.
+Brazil,.edu.br,Root,Standard institutional extension for universities and colleges.
+Mexico,.edu.mx,Root,Educational domain for universities and technical centers.
+South Africa,.ac.za,Root,Standard academic extension for South African higher education.
