@@ -207,7 +207,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div className="rounded-lg bg-muted/40 p-2.5">
                     <div className="text-muted-foreground">Domain</div>
-                    <div className="font-semibold truncate">{activeInbox.domain}</div>
+                    <div className="font-semibold truncate">{typeof activeInbox.domain === 'string' ? activeInbox.domain : activeInbox.domain?.domain || activeInbox.domain}</div>
                   </div>
                   <div className="rounded-lg bg-muted/40 p-2.5">
                     <div className="text-muted-foreground">Created</div>

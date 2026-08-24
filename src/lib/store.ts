@@ -3,25 +3,32 @@
 import { create } from 'zustand'
 import type { Inbox, MessageSummary } from '@/lib/types'
 
-export type SectionId = 'inbox' | 'messages' | 'addresses' | 'settings' | 'about'
+export type SectionId =
+  | 'inbox' | 'messages' | 'addresses' | 'settings' | 'about'
+  | 'legal' | 'applock' | 'expired' | 'onboarding' | 'compose' | 'sessions'
 
 interface AppState {
   // navigation
   activeSection: SectionId
-  setActiveSection: (s: SectionId) => void
+  sectionParams: Record<string, string>
+  setActiveSection: (s: SectionId, params?: Record<string, string>) => void
 
-  // active inbox (the one currently being watched)
+  // side drawer (mobile)
+  drawerOpen: boolean
+  setDrawerOpen: (v: boolean) => void
+
+  // active inbox
   activeInboxId: string | null
   setActiveInboxId: (id: string | null) => void
 
-  // inboxes cache (kept in sync with queries via setter)
+  // inboxes cache
   inboxes: Inbox[]
   setInboxes: (list: Inbox[]) => void
   upsertInbox: (inbox: Inbox) => void
   removeInbox: (id: string) => void
   updateInbox: (id: string, patch: Partial<Inbox>) => void
 
-  // messages for the active inbox (real-time-updated)
+  // messages for the active inbox
   messages: MessageSummary[]
   setMessages: (list: MessageSummary[]) => void
   prependMessage: (msg: MessageSummary) => void
@@ -36,11 +43,39 @@ interface AppState {
   freshMessageId: string | null
   markFresh: (id: string) => void
   clearFresh: () => void
+
+  // app lock
+  isLocked: boolean
+  setLocked: (v: boolean) => void
+  appLockEnabled: boolean
+  setAppLockEnabled: (v: boolean) => void
+
+  // onboarding (first-run)
+  hasSeenOnboarding: boolean
+  setHasSeenOnboarding: (v: boolean) => void
+}
+
+const LS = {
+  appLock: 'studenttemp_applock',
+  onboarding: 'studenttemp_onboarded',
+}
+
+function readLS(key: string): boolean {
+  if (typeof window === 'undefined') return false
+  return localStorage.getItem(key) === '1'
+}
+function writeLS(key: string, val: boolean) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(key, val ? '1' : '0')
 }
 
 export const useAppStore = create<AppState>((set) => ({
   activeSection: 'inbox',
-  setActiveSection: (s) => set({ activeSection: s }),
+  sectionParams: {},
+  setActiveSection: (s, params = {}) => set({ activeSection: s, sectionParams: params }),
+
+  drawerOpen: false,
+  setDrawerOpen: (v) => set({ drawerOpen: v }),
 
   activeInboxId: null,
   setActiveInboxId: (id) => set({ activeInboxId: id, openMessageId: null, messages: [] }),
@@ -88,4 +123,19 @@ export const useAppStore = create<AppState>((set) => ({
   freshMessageId: null,
   markFresh: (id) => set({ freshMessageId: id }),
   clearFresh: () => set({ freshMessageId: null }),
+
+  isLocked: false,
+  setLocked: (v) => set({ isLocked: v }),
+  appLockEnabled: false,
+  setAppLockEnabled: (v) => { writeLS(LS.appLock, v); set({ appLockEnabled: v }) },
+
+  hasSeenOnboarding: false,
+  setHasSeenOnboarding: (v) => { writeLS(LS.onboarding, v); set({ hasSeenOnboarding: v }) },
 }))
+
+// Hydrate persisted UI flags on the client after mount (avoids SSR hydration mismatch).
+if (typeof window !== 'undefined') {
+  const appLock = readLS(LS.appLock)
+  const onboarding = readLS(LS.onboarding)
+  useAppStore.setState({ appLockEnabled: appLock, hasSeenOnboarding: onboarding })
+}

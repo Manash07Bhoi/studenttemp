@@ -18,11 +18,12 @@ export function useSocket(opts: UseSocketOptions = {}) {
   const socketRef = useRef<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [activeEmail, setActiveEmail] = useState<string | null>(null)
-  // store latest callbacks in refs so we don't re-create the socket on every render
   const onMessageRef = useRef(opts.onMessage)
   const onInboxExpiredRef = useRef(opts.onInboxExpired)
-  onMessageRef.current = opts.onMessage
-  onInboxExpiredRef.current = opts.onInboxExpired
+  useEffect(() => {
+    onMessageRef.current = opts.onMessage
+    onInboxExpiredRef.current = opts.onInboxExpired
+  })
 
   useEffect(() => {
     const socket = io('/?XTransformPort=3003', {
@@ -40,9 +41,20 @@ export function useSocket(opts: UseSocketOptions = {}) {
 
     socket.on('message:new', (msg: RealtimeMessage) => {
       onMessageRef.current?.(msg)
+      // Broadcast to other tabs of this origin (multi-tab sync per WORKFLOWS.md H4)
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          new BroadcastChannel('studenttemp').postMessage({ type: 'message:new', msg })
+        } catch {}
+      }
     })
     socket.on('inbox:expired', (data: { inboxId: string; email: string }) => {
       onInboxExpiredRef.current?.(data)
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          new BroadcastChannel('studenttemp').postMessage({ type: 'inbox:expired', data })
+        } catch {}
+      }
     })
 
     if (opts.sessionId) {
@@ -55,7 +67,6 @@ export function useSocket(opts: UseSocketOptions = {}) {
     }
   }, [])
 
-  // re-subscribe session if sessionId changes
   useEffect(() => {
     if (socketRef.current && opts.sessionId && isConnected) {
       socketRef.current.emit('session:subscribe', { sessionId: opts.sessionId })

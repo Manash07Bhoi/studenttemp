@@ -1,16 +1,25 @@
-// POST /api/check-alias — check if a custom local-part is available
+// POST /api/check-alias — check if a custom local-part is available (rate-limited)
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { validateLocalPart, DOMAINS } from '@/lib/mail-utils'
+import { validateLocalPart, getClientIp, rateLimit } from '@/lib/mail-utils'
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req)
+  // 20/min/IP before Turnstile escalation (per PRD quota table)
+  const limit = rateLimit(`check-alias:${ip}`, 20, 60 * 1000)
+  if (!limit.ok) {
+    return NextResponse.json(
+      { available: false, reason: 'Too many availability checks. Please slow down.' },
+      { status: 429 }
+    )
+  }
   const body = await req.json().catch(() => ({}))
-  const { localPart, domain } = body || {}
-  if (!localPart || !domain) {
+  const { localPart, domain: domainName } = body || {}
+  if (!localPart || !domainName) {
     return NextResponse.json({ available: false, reason: 'Missing input' }, { status: 400 })
   }
-  const validDomain = DOMAINS.find(d => d.domain === domain)
-  if (!validDomain) {
+  const domainRow = await db.domain.findFirst({ where: { domain: domainName, active: true } })
+  if (!domainRow) {
     return NextResponse.json({ available: false, reason: 'Invalid domain' }, { status: 400 })
   }
   const normalized = String(localPart).toLowerCase().trim()
@@ -18,17 +27,20 @@ export async function POST(req: NextRequest) {
   if (!validation.ok) {
     return NextResponse.json({ available: false, reason: validation.reason })
   }
-  const existing = await db.inbox.findFirst({
-    where: { localPart: normalized, domain: validDomain.domain },
+  const activeConflict = await db.inbox.findFirst({
+    where: { localPart: normalized, domainId: domainRow.id, status: 'active' },
   })
-  if (existing && existing.expiresAt > new Date()) {
+  if (activeConflict && activeConflict.expiresAt > new Date()) {
     return NextResponse.json({ available: false, reason: 'Already taken' })
   }
-  if (existing && existing.expiresAt < new Date()) {
-    const cooldownEnd = new Date(existing.expiresAt.getTime() + 5 * 60 * 1000)
-    if (cooldownEnd > new Date()) {
-      return NextResponse.json({ available: false, reason: 'In cooldown after recent expiry' })
-    }
+  const ledger = await db.customAlias.findUnique({
+    where: { localPart_domainId: { localPart: normalized, domainId: domainRow.id } },
+  })
+  if (ledger?.cooldownUntil && ledger.cooldownUntil > new Date()) {
+    return NextResponse.json({
+      available: false,
+      reason: `In cooldown until ${ledger.cooldownUntil.toLocaleTimeString()}`,
+    })
   }
-  return NextResponse.json({ available: true, email: `${normalized}@${validDomain.domain}` })
+  return NextResponse.json({ available: true, email: `${normalized}@${domainRow.domain}` })
 }

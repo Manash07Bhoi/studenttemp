@@ -1,7 +1,6 @@
 // Typed API client for StudentTemp
 import type {
-  DomainInfo, LifetimeOption, CategoryPreset, Quotas,
-  Inbox, MessageSummary, MessageFull, SessionStats,
+  DomainsResponse, Inbox, MessageSummary, MessageFull, SessionStats, LegalDoc,
 } from './types'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -15,13 +14,6 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(msg)
   }
   return data as T
-}
-
-export interface DomainsResponse {
-  domains: DomainInfo[]
-  lifetimeOptions: LifetimeOption[]
-  categories: CategoryPreset[]
-  quotas: Quotas
 }
 
 export const api = {
@@ -48,6 +40,7 @@ export const api = {
   deleteMessage: (id: string) => req<{ ok: boolean }>(`/api/messages/${id}`, { method: 'DELETE' }),
   reportMessage: (id: string, reason: string, category: string) =>
     req<{ ok: boolean }>(`/api/messages/${id}/report`, { method: 'POST', body: JSON.stringify({ reason, category }) }),
+  attachmentUrl: (msgId: string, attId: string) => `/api/messages/${msgId}/attachments/${attId}`,
 
   checkAlias: (localPart: string, domain: string) =>
     req<{ available: boolean; reason?: string; email?: string }>('/api/check-alias', {
@@ -56,4 +49,23 @@ export const api = {
     }),
 
   getStats: () => req<SessionStats>('/api/stats'),
+  getSession: () => req<{ session: { id: string; createdAt: string; expiresAt: string; maxInboxes: number; locale: string; _count: { inboxes: number } } }>('/api/session'),
+  recoverSession: (code: string) =>
+    req<{ ok: boolean; sessionId: string }>('/api/session', { method: 'POST', body: JSON.stringify({ code }) }),
+
+  sendMail: (body: { inboxId: string; to: string; subject: string; text: string; html?: string }) =>
+    req<{ ok: boolean; messageId: string; response: string }>('/api/send-mail', {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+
+  subscribePush: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    req<{ ok: boolean; id: string }>('/api/notifications/subscribe', {
+      method: 'POST', body: JSON.stringify(sub),
+    }),
+  unsubscribePush: (endpoint?: string) =>
+    req<{ ok: boolean }>('/api/notifications/subscribe', {
+      method: 'DELETE', body: JSON.stringify({ endpoint }),
+    }),
+
+  getLegal: (doc: string) => req<LegalDoc>(`/api/legal/${doc}`),
 }
