@@ -66,8 +66,8 @@ interface AppState {
   setSelectedMessageId: (id: string | null) => void
 
   // i18n locale (en | hi)
-  locale: 'en' | 'hi'
-  setLocale: (l: 'en' | 'hi') => void
+  locale: 'en' | 'hi' | 'ta' | 'bn'
+  setLocale: (l: 'en' | 'hi' | 'ta' | 'bn') => void
 
   // web push notification pre-prompt (dismissed state)
   pushPromptDismissed: boolean
@@ -184,7 +184,7 @@ export const useAppStore = create<AppState>((set) => ({
 if (typeof window !== 'undefined') {
   const appLock = readLS(LS.appLock)
   const onboarding = readLS(LS.onboarding)
-  const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi') || 'en'
+  const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi' | 'ta' | 'bn') || 'en'
   const pushDismissed = readLS('studenttemp_push_dismissed')
   useAppStore.setState({
     appLockEnabled: appLock,

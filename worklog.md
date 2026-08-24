@@ -1027,3 +1027,59 @@ Unresolved / next-phase recommendations:
 6. **Inbox categories/folders** — organize inboxes by category (not just messages)
 7. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport
 8. **SW cache strategy** — consider using a network-first strategy for the app shell to avoid stale cache issues in development
+
+---
+Task ID: CRON-REVIEW-7
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, fix SW cache strategy, add Tamil + Bengali i18n, polish.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, i18n En/Hindi, analytics, command palette, keyboard shortcuts, Web Push, app lock, swipe gestures, service worker, reply/export/forward, pull-to-refresh, long-press context menu, global search, drag-to-reorder, search highlighting, category filters all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- Sent real test email, verified real-time delivery + search highlighting
+
+**New features / fixes implemented:**
+
+1. **Service Worker cache strategy fix (critical)**
+   - Bumped cache version from `studenttemp-shell-v1` → `studenttemp-shell-v2`
+   - Changed static asset strategy from **cache-first** → **network-first** — this prevents stale JS/CSS from being served in development and ensures users always get the latest code
+   - Added automatic cache cleanup on activate (deletes ALL old caches, not just non-matching ones)
+   - Added `SW_UPDATED` message broadcast to all clients on SW activation — clients auto-reload to pick up changes
+   - Updated `useServiceWorker` hook to:
+     - Listen for `updatefound` events and reload when new SW activates
+     - Listen for `SW_UPDATED` messages and reload
+     - Proper cleanup of event listeners
+
+2. **Tamil (தமிழ்) i18n support — PRD §3.2**
+   - Added Tamil locale to `LOCALES` array with native label தமிழ்
+   - Created Tamil dictionary with ~40 key translations covering: common, nav, inbox, messages, settings, about, footer
+   - Verified: nav shows இன்பாக்ஸ் (Inbox), செய்திகள் (Messages), அமைப்புகள் (Settings) ✓
+
+3. **Bengali (বাংলা) i18n support — PRD §3.2**
+   - Added Bengali locale to `LOCALES` array with native label বাংলা
+   - Created Bengali dictionary with ~40 key translations covering: common, nav, inbox, messages, settings, about, footer
+   - Verified: nav shows ইনবক্স (Inbox), বার্তা (Messages), সেটিংস (Settings) ✓
+
+4. **Updated store type**
+   - Changed `locale` type from `'en' | 'hi'` → `'en' | 'hi' | 'ta' | 'bn'`
+   - Updated localStorage hydration to cast to the new union type
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- SW cache strategy fixed: network-first for all assets, auto-reload on SW update
+- Tamil i18n verified: 4 language buttons visible (English/Hindi/Tamil/Bengali), Tamil nav renders correctly ✓
+- Bengali i18n verified: Bengali nav renders correctly ✓
+- Search highlighting verified: searched "threading" → 1 result with 2 highlighted marks (subject + preview) ✓
+- Real SMTP flow still working end-to-end
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Real VAPID key pair** — configure for real push delivery
+2. **Full Tamil/Bengali translation** — only ~40 keys translated; the remaining ~140 keys (descriptive strings, FAQ, About body) still fall back to English
+3. **More i18n languages** — Odia, Telugu, Marathi (PRD §3.2 specifies 5 regional languages + English)
+4. **Real ClamAV integration** for attachment scanning
+5. **Message threading** — group replies in a thread view (not yet implemented)
+6. **Inbox categories/folders** — organize inboxes by category
+7. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport

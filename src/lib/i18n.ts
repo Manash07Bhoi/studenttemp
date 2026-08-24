@@ -1,12 +1,14 @@
-// StudentTemp i18n — English + Hindi (with RTL-ready structure for future Arabic)
+// StudentTemp i18n — English + Hindi + Tamil + Bengali (with RTL-ready structure for future Arabic)
 // Per PRD §3.2: "Regional language UI (Hindi, Odia, Telugu, Tamil, Bengali, Marathi)"
-// We ship English + Hindi now; the dictionary structure makes adding more trivial.
+// Ships English + Hindi + Tamil + Bengali; structure makes adding more trivial.
 
-export type Locale = 'en' | 'hi'
+export type Locale = 'en' | 'hi' | 'ta' | 'bn'
 
 export const LOCALES: { code: Locale; label: string; nativeLabel: string; dir: 'ltr' | 'rtl' }[] = [
   { code: 'en', label: 'English', nativeLabel: 'English', dir: 'ltr' },
   { code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी', dir: 'ltr' },
+  { code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்', dir: 'ltr' },
+  { code: 'bn', label: 'Bengali', nativeLabel: 'বাংলা', dir: 'ltr' },
 ]
 
 export const DEFAULT_LOCALE: Locale = 'en'
@@ -300,7 +302,97 @@ const hi: Dict = {
   'footer.disclaimer': 'यह एक निजी अस्थायी पता है, आधिकारिक संस्थान ईमेल नहीं।',
 }
 
-const dicts: Record<Locale, Dict> = { en, hi }
+const ta: Dict = {
+  'common.appName': 'StudentTemp',
+  'common.tagline': 'நிரந்தர ஈமெயில்',
+  'common.live': 'நேரடி',
+  'common.connecting': 'இணைக்கிறது',
+  'common.copy': 'நகலெடு',
+  'common.copied': 'நகலெடுக்கப்பட்டது',
+  'common.delete': 'நீக்கு',
+  'common.cancel': 'ரத்து',
+  'common.refresh': 'புதுப்பி',
+  'common.search': 'தேடு',
+  'common.loading': 'ஏற்றுகிறது…',
+  'common.save': 'சேமி',
+  'common.saved': 'சேமிக்கப்பட்டது',
+  'nav.inbox': 'இன்பாக்ஸ்',
+  'nav.messages': 'செய்திகள்',
+  'nav.addresses': 'முகவரிகள்',
+  'nav.compose': 'எழுது',
+  'nav.analytics': 'பகுப்பாய்வு',
+  'nav.settings': 'அமைப்புகள்',
+  'nav.about': 'பற்றி',
+  'inbox.yourTemporaryInbox': 'உங்கள் தற்காலிக இன்பாக்ஸ்',
+  'inbox.noActiveInbox': 'செயலில் இன்பாக்ஸ் இல்லை',
+  'inbox.generateMyInbox': 'என் இன்பாக்ஸை உருவாக்கு',
+  'inbox.howItWorks': 'எப்படி வேலை செய்கிறது',
+  'inbox.safetyPrivacy': 'பாதுகாப்பு & தனியுரிமை',
+  'inbox.domain': 'டொமைன்',
+  'inbox.created': 'உருவாக்கப்பட்டது',
+  'inbox.messages': 'செய்திகள்',
+  'inbox.mode': 'முறை',
+  'messages.title': 'செய்திகள்',
+  'messages.searchPlaceholder': 'தலைப்பு, அனுப்புநர் அல்லது உள்ளடக்கத்தைத் தேடு…',
+  'messages.all': 'அனைத்தும்',
+  'messages.unread': 'படிக்காத',
+  'messages.starred': 'நட்சத்திரமிடப்பட்ட',
+  'messages.noMessages': 'இன்னும் செய்திகள் இல்லை',
+  'messages.selectMessage': 'ஒரு செய்தியைத் தேர்ந்தெடுக்கவும்',
+  'settings.title': 'அமைப்புகள்',
+  'settings.dataPrivacy': 'தரவு & தனியுரிமை',
+  'settings.notificationsFeedback': 'அறிவிப்புகள் & பின்னூட்டம்',
+  'about.heroTitle': 'மாணவர்கள், டெவலப்பர்கள் மற்றும் சோதனையாளர்களுக்கான தனியுரிமை-முதன்மை தற்காலிக ஈமெயில் தளம்.',
+  'footer.privacyFirst': 'தனியுரிமை-முதல் · கண்காணிப்பு இல்லை · பதிவு இல்லை',
+  'footer.disclaimer': 'இது ஒரு தனியார் தற்காலிக முகவரி, அதிகாரப்பூர்வ நிறுவன ஈமெயில் அல்ல.',
+}
+
+const bn: Dict = {
+  'common.appName': 'StudentTemp',
+  'common.tagline': 'ডিসপোজেবল ইমেইল',
+  'common.live': 'লাইভ',
+  'common.connecting': 'সংযুক্ত হচ্ছে',
+  'common.copy': 'কপি',
+  'common.copied': 'কপি হয়েছে',
+  'common.delete': 'মুছুন',
+  'common.cancel': 'বাতিল',
+  'common.refresh': 'রিফ্রেশ',
+  'common.search': 'খুঁজুন',
+  'common.loading': 'লোড হচ্ছে…',
+  'common.save': 'সেভ',
+  'common.saved': 'সেভ হয়েছে',
+  'nav.inbox': 'ইনবক্স',
+  'nav.messages': 'বার্তা',
+  'nav.addresses': 'ঠিকানা',
+  'nav.compose': 'লিখুন',
+  'nav.analytics': 'বিশ্লেষণ',
+  'nav.settings': 'সেটিংস',
+  'nav.about': 'সম্পর্কে',
+  'inbox.yourTemporaryInbox': 'আপনার অস্থায়ী ইনবক্স',
+  'inbox.noActiveInbox': 'কোনো সক্রিয় ইনবক্স নেই',
+  'inbox.generateMyInbox': 'আমার ইনবক্স তৈরি করুন',
+  'inbox.howItWorks': 'কীভাবে কাজ করে',
+  'inbox.safetyPrivacy': 'নিরাপত্তা ও গোপনীয়তা',
+  'inbox.domain': 'ডোমেইন',
+  'inbox.created': 'তৈরি হয়েছে',
+  'inbox.messages': 'বার্তা',
+  'inbox.mode': 'মোড',
+  'messages.title': 'বার্তা',
+  'messages.searchPlaceholder': 'বিষয়, প্রেরক বা বিষয়বস্তু খুঁজুন…',
+  'messages.all': 'সব',
+  'messages.unread': 'অপঠিত',
+  'messages.starred': 'তারকা চিহ্নিত',
+  'messages.noMessages': 'এখনো কোনো বার্তা নেই',
+  'messages.selectMessage': 'একটি বার্তা নির্বাচন করুন',
+  'settings.title': 'সেটিংস',
+  'settings.dataPrivacy': 'ডেটা ও গোপনীয়তা',
+  'settings.notificationsFeedback': 'বিজ্ঞপ্তি ও প্রতিক্রিয়া',
+  'about.heroTitle': 'শিক্ষার্থী, ডেভেলপার এবং পরীক্ষকদের জন্য একটি গোপনীয়তা-প্রথম অস্থায়ী ইমেইল প্ল্যাটফর্ম।',
+  'footer.privacyFirst': 'গোপনীয়তা-প্রথম · কোনো ট্র্যাকিং নেই · কোনো সাইন-আপ নেই',
+  'footer.disclaimer': 'এটি একটি ব্যক্তিগত অস্থায়ী ঠিকানা, সরকারি প্রতিষ্ঠানের ইমেইল নয়।',
+}
+
+const dicts: Record<Locale, Dict> = { en, hi, ta, bn }
 
 export function translate(locale: Locale, key: string, fallback?: string): string {
   return dicts[locale]?.[key] || dicts.en[key] || fallback || key

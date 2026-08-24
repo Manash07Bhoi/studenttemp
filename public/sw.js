@@ -3,23 +3,29 @@
 // - Enables Web Push notifications (PushManager requires a service worker)
 // - Minimal offline shell (does not cache dynamic API data — temp mail must always be fresh)
 
-const CACHE_NAME = 'studenttemp-shell-v1'
+const CACHE_NAME = 'studenttemp-shell-v2'
 const OFFLINE_URL = '/'
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll([OFFLINE_URL])).catch(() => {})
-  )
+  // Skip waiting to activate the new SW immediately
   self.skipWaiting()
+  // Don't pre-cache — we'll cache on first fetch
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
-      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
-    )
+      // Delete ALL old caches (including v1) to prevent stale content
+      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => {
+        console.log('[sw] deleting old cache:', n)
+        return caches.delete(n)
+      }))
+    ).then(() => self.clients.claim())
+      .then(() => self.clients.matchAll().then(clients => {
+        // Notify all clients to reload so they pick up the new SW
+        clients.forEach(client => client.postMessage({ type: 'SW_UPDATED' }))
+      }))
   )
-  self.clients.claim()
 })
 
 // Network-first for navigation, cache fallback when offline.
@@ -46,19 +52,18 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Cache-first for static assets
+  // Network-first for static assets too (prevents stale JS/CSS in dev)
   if (['style', 'script', 'image', 'font'].includes(request.destination)) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached
-        return fetch(request).then((response) => {
+      fetch(request)
+        .then((response) => {
           if (response && response.status === 200 && response.type === 'basic') {
             const copy = response.clone()
             caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {})
           }
           return response
-        }).catch(() => cached)
-      })
+        })
+        .catch(() => caches.match(request))
     )
   }
 })

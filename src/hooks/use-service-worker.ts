@@ -7,6 +7,7 @@ import { useEffect } from 'react'
  * - Enables PWA installability
  * - Enables Web Push (PushManager requires an active service worker)
  * - Provides a minimal offline shell
+ * - Auto-reloads when the SW updates (prevents stale content)
  */
 export function useServiceWorker() {
   useEffect(() => {
@@ -18,6 +19,19 @@ export function useServiceWorker() {
       navigator.serviceWorker
         .register('/sw.js', { scope: '/' })
         .then((reg) => {
+          // Listen for SW updates
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                  // New SW activated — reload to pick up changes
+                  console.log('[sw] new service worker activated, reloading…')
+                  window.location.reload()
+                }
+              })
+            }
+          })
           // Check for updates every 5 minutes
           setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000)
         })
@@ -27,12 +41,25 @@ export function useServiceWorker() {
         })
     }
 
+    // Listen for SW messages (manual reload trigger from SW)
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SW_UPDATED') {
+        console.log('[sw] received SW_UPDATED message, reloading…')
+        window.location.reload()
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+
     // Register after window load to not compete with initial render
     if (document.readyState === 'complete') {
       register()
     } else {
       window.addEventListener('load', register, { once: true })
-      return () => window.removeEventListener('load', register)
+    }
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onMessage)
+      window.removeEventListener('load', register)
     }
   }, [])
 }
