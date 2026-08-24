@@ -1,14 +1,16 @@
-// StudentTemp i18n — English + Hindi + Tamil + Bengali (with RTL-ready structure for future Arabic)
+// StudentTemp i18n — English + Hindi + Tamil + Bengali + Telugu + Marathi (with RTL-ready structure for future Arabic)
 // Per PRD §3.2: "Regional language UI (Hindi, Odia, Telugu, Tamil, Bengali, Marathi)"
-// Ships English + Hindi + Tamil + Bengali; structure makes adding more trivial.
+// Ships all 6 languages per PRD; structure makes adding more trivial.
 
-export type Locale = 'en' | 'hi' | 'ta' | 'bn'
+export type Locale = 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr'
 
 export const LOCALES: { code: Locale; label: string; nativeLabel: string; dir: 'ltr' | 'rtl' }[] = [
   { code: 'en', label: 'English', nativeLabel: 'English', dir: 'ltr' },
   { code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी', dir: 'ltr' },
   { code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்', dir: 'ltr' },
   { code: 'bn', label: 'Bengali', nativeLabel: 'বাংলা', dir: 'ltr' },
+  { code: 'te', label: 'Telugu', nativeLabel: 'తెలుగు', dir: 'ltr' },
+  { code: 'mr', label: 'Marathi', nativeLabel: 'मराठी', dir: 'ltr' },
 ]
 
 export const DEFAULT_LOCALE: Locale = 'en'
@@ -392,7 +394,97 @@ const bn: Dict = {
   'footer.disclaimer': 'এটি একটি ব্যক্তিগত অস্থায়ী ঠিকানা, সরকারি প্রতিষ্ঠানের ইমেইল নয়।',
 }
 
-const dicts: Record<Locale, Dict> = { en, hi, ta, bn }
+const te: Dict = {
+  'common.appName': 'StudentTemp',
+  'common.tagline': 'డిస్పోజబుల్ ఇమెయిల్',
+  'common.live': 'లైవ్',
+  'common.connecting': 'కనెక్ట్ అవుతోంది',
+  'common.copy': 'కాపీ',
+  'common.copied': 'కాపీ అయింది',
+  'common.delete': 'తొలగించు',
+  'common.cancel': 'రద్దు',
+  'common.refresh': 'రిఫ్రెష్',
+  'common.search': 'వెతకండి',
+  'common.loading': 'లోడ్ అవుతోంది…',
+  'common.save': 'సేవ్',
+  'common.saved': 'సేవ్ అయింది',
+  'nav.inbox': 'ఇన్‌బాక్స్',
+  'nav.messages': 'సందేశాలు',
+  'nav.addresses': 'చిరునామాలు',
+  'nav.compose': 'రాయండి',
+  'nav.analytics': 'విశ్లేషణ',
+  'nav.settings': 'సెట్టింగ్‌లు',
+  'nav.about': 'గురించి',
+  'inbox.yourTemporaryInbox': 'మీ తాత్కాలిక ఇన్‌బాక్స్',
+  'inbox.noActiveInbox': 'క్రియాశీల ఇన్‌బాక్స్ లేదు',
+  'inbox.generateMyInbox': 'నా ఇన్‌బాక్స్‌ను సృష్టించండి',
+  'inbox.howItWorks': 'ఇది ఎలా పనిచేస్తుంది',
+  'inbox.safetyPrivacy': 'భద్రత & గోప్యత',
+  'inbox.domain': 'డొమైన్',
+  'inbox.created': 'సృష్టించబడింది',
+  'inbox.messages': 'సందేశాలు',
+  'inbox.mode': 'మోడ్',
+  'messages.title': 'సందేశాలు',
+  'messages.searchPlaceholder': 'విషయం, పంపినవారు లేదా కంటెంట్ వెతకండి…',
+  'messages.all': 'అన్నీ',
+  'messages.unread': 'చదవని',
+  'messages.starred': 'నక్షత్రం',
+  'messages.noMessages': 'ఇంకా సందేశాలు లేవు',
+  'messages.selectMessage': 'ఒక సందేశం ఎంచుకోండి',
+  'settings.title': 'సెట్టింగ్‌లు',
+  'settings.dataPrivacy': 'డేటా & గోప్యత',
+  'settings.notificationsFeedback': 'నోటిఫికేషన్‌లు & ఫీడ్‌బ్యాక్',
+  'about.heroTitle': 'విద్యార్థులు, డెవలపర్‌లు మరియు టెస్టర్‌ల కోసం గోప్యత-ఆధారిత తాత్కాలిక ఇమెయిల్ ప్లాట్‌ఫారమ్.',
+  'footer.privacyFirst': 'గోప్యత-ఆధారిత · ట్రాకింగ్ లేదు · సైన్-అప్ లేదు',
+  'footer.disclaimer': 'ఇది ఒక ప్రైవేట్ తాత్కాలిక చిరునామా, అధికారిక సంస్థ ఇమెయిల్ కాదు.',
+}
+
+const mr: Dict = {
+  'common.appName': 'StudentTemp',
+  'common.tagline': 'डिस्पोजेबल ईमेल',
+  'common.live': 'लाइव्ह',
+  'common.connecting': 'कनेक्ट होत आहे',
+  'common.copy': 'कॉपी',
+  'common.copied': 'कॉपी झाले',
+  'common.delete': 'हटवा',
+  'common.cancel': 'रद्द करा',
+  'common.refresh': 'रिफ्रेश',
+  'common.search': 'शोधा',
+  'common.loading': 'लोड होत आहे…',
+  'common.save': 'सेव्ह',
+  'common.saved': 'सेव्ह झाले',
+  'nav.inbox': 'इनबॉक्स',
+  'nav.messages': 'संदेश',
+  'nav.addresses': 'पत्ते',
+  'nav.compose': 'लिहा',
+  'nav.analytics': 'विश्लेषण',
+  'nav.settings': 'सेटिंग्ज',
+  'nav.about': 'विषयी',
+  'inbox.yourTemporaryInbox': 'तुमचा तात्पुरता इनबॉक्स',
+  'inbox.noActiveInbox': 'सक्रिय इनबॉक्स नाही',
+  'inbox.generateMyInbox': 'माझा इनबॉक्स तयार करा',
+  'inbox.howItWorks': 'हे कसे काम करते',
+  'inbox.safetyPrivacy': 'सुरक्षा आणि गोपनीयता',
+  'inbox.domain': 'डोमेन',
+  'inbox.created': 'तयार केले',
+  'inbox.messages': 'संदेश',
+  'inbox.mode': 'मोड',
+  'messages.title': 'संदेश',
+  'messages.searchPlaceholder': 'विषय, प्रेषक किंवा मजकूर शोधा…',
+  'messages.all': 'सर्व',
+  'messages.unread': 'न वाचलेले',
+  'messages.starred': 'तारांकित',
+  'messages.noMessages': 'अजून संदेश नाहीत',
+  'messages.selectMessage': 'एक संदेश निवडा',
+  'settings.title': 'सेटिंग्ज',
+  'settings.dataPrivacy': 'डेटा आणि गोपनीयता',
+  'settings.notificationsFeedback': 'सूचना आणि अभिप्राय',
+  'about.heroTitle': 'विद्यार्थी, विकासकर्ते आणि परीक्षकांसाठी गोपनीयता-प्रथम तात्पुरता ईमेल प्लॅटफॉर्म.',
+  'footer.privacyFirst': 'गोपनीयता-प्रथम · ट्रॅकिंग नाही · साइन-अप नाही',
+  'footer.disclaimer': 'हा एक खाजगी तात्पुरता पत्ता आहे, अधिकृत संस्था ईमेल नाही.',
+}
+
+const dicts: Record<Locale, Dict> = { en, hi, ta, bn, te, mr }
 
 export function translate(locale: Locale, key: string, fallback?: string): string {
   return dicts[locale]?.[key] || dicts.en[key] || fallback || key

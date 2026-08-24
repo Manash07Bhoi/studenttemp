@@ -9,7 +9,7 @@ import {
 import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
-  CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send,
+  CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send, MessagesSquare,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -84,6 +84,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [threadView, setThreadView] = useState(false)
   const [forwardingMsgId, setForwardingMsgId] = useState<string | null>(null)
 
   // Search input ref — focused by the `/` keyboard shortcut.
@@ -159,6 +160,28 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
     }
     return true
   })
+
+  // Thread view: group messages by normalized subject (strip Re:/Fwd: prefixes)
+  const threads = useMemo(() => {
+    if (!threadView) return null
+    const normalizeSubject = (s: string) =>
+      s.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase()
+    const groups = new Map<string, typeof filtered>()
+    for (const m of filtered) {
+      const key = normalizeSubject(m.subject)
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(m)
+    }
+    // Sort each thread by receivedAt ascending (oldest first) and return as array
+    return Array.from(groups.values()).map(thread =>
+      thread.sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime())
+    ).sort((a, b) => {
+      // Sort threads by most recent message
+      const aLast = new Date(a[a.length - 1].receivedAt).getTime()
+      const bLast = new Date(b[b.length - 1].receivedAt).getTime()
+      return bLast - aLast
+    })
+  }, [filtered, threadView])
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
@@ -296,6 +319,16 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
               <SelectItem value="general">General</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            size="sm"
+            variant={threadView ? 'default' : 'outline'}
+            onClick={() => setThreadView(!threadView)}
+            className="gap-1.5"
+            title="Toggle thread view"
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Threads</span>
+          </Button>
         </div>
       </div>
 
@@ -371,6 +404,12 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                 }
                 compact
               />
+            ) : threadView && threads ? (
+              <div className="divide-y divide-border/40">
+                {threads.map((thread, ti) => (
+                  <ThreadGroup key={ti} thread={thread} />
+                ))}
+              </div>
             ) : (
               <ul className="divide-y divide-border/40">
                 <AnimatePresence initial={false}>
@@ -1333,5 +1372,125 @@ function ForwardDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ---------- Thread Group (collapsible conversation) ----------
+function ThreadGroup({ thread }: { thread: MessageSummary[] }) {
+  const [expanded, setExpanded] = useState(thread.length === 1)
+  const latest = thread[thread.length - 1]
+  const unreadCount = thread.filter(m => !m.isRead).length
+  const openMessageId = useAppStore((s) => s.openMessageId)
+  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+  const setSelectedMessageId = useAppStore((s) => s.setSelectedMessageId)
+  const updateMessage = useAppStore((s) => s.updateMessage)
+  const removeMessage = useAppStore((s) => s.removeMessage)
+  const queryClient = useQueryClient()
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
+      api.updateMessage(id, data),
+    onSuccess: (_d, vars) => {
+      updateMessage(vars.id, vars.data)
+      queryClient.invalidateQueries({ queryKey: ['messages'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteMessage(id),
+    onSuccess: (_d, id) => {
+      removeMessage(id)
+      queryClient.invalidateQueries({ queryKey: ['messages'] })
+    },
+  })
+
+  const reportMutation = useMutation({
+    mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
+      api.reportMessage(id, reason, category),
+    onSuccess: () => {
+      toast.success('Message reported')
+      queryClient.invalidateQueries({ queryKey: ['messages'] })
+    },
+  })
+
+  const cat = CATEGORY_META[latest.category] || CATEGORY_META.general
+
+  return (
+    <div className="bg-card">
+      {/* Thread header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left p-3 flex items-start gap-3 hover:bg-accent/30 transition-colors"
+      >
+        <div className="relative shrink-0">
+          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+            {latest.fromName[0]?.toUpperCase() || '?'}
+          </div>
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 grid place-items-center rounded-full bg-emerald-500 text-[9px] font-bold text-white px-1 ring-2 ring-background">
+              {unreadCount}
+            </span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-bold truncate min-w-0">{latest.fromName}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {thread.length > 1 && (
+                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                  {thread.length} messages
+                </span>
+              )}
+              <span className="text-[11px] text-muted-foreground tabular-nums">{formatTime(latest.receivedAt)}</span>
+            </div>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+            <span className="text-sm truncate flex-1 min-w-0 font-semibold">
+              {latest.subject.replace(/^(re:\s*|fwd:\s*)+/i, '')}
+            </span>
+            <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground truncate">{latest.previewText}</p>
+        </div>
+      </button>
+
+      {/* Expanded thread messages */}
+      <AnimatePresence initial={false}>
+        {expanded && thread.length > 1 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="overflow-hidden border-t border-border/40"
+          >
+            <ul className="divide-y divide-border/30">
+              {thread.map((msg) => (
+                <li key={msg.id}>
+                  <button
+                    onClick={() => { setOpenMessageId(msg.id); setSelectedMessageId(msg.id) }}
+                    className={cn(
+                      'w-full text-left px-3 py-2.5 flex gap-2.5 hover:bg-accent/30 transition-colors',
+                      openMessageId === msg.id && 'bg-emerald-500/10'
+                    )}
+                  >
+                    <div className="flex-1 min-w-0 overflow-hidden pl-6">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('text-xs truncate flex-1 min-w-0', msg.isRead ? 'text-muted-foreground' : 'font-bold text-foreground')}>
+                          {msg.fromName}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">{formatTime(msg.receivedAt)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.subject}</p>
+                    </div>
+                    {!msg.isRead && <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 mt-1" />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
