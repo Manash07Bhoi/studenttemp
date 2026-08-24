@@ -30,6 +30,7 @@ import { LegalSection } from '@/components/sections/legal-section'
 import { AppLockSection, LockScreen, useAutoLock } from '@/components/sections/applock-section'
 import { OnboardingOverlay } from '@/components/sections/onboarding-overlay'
 import { PushNotificationPrompt } from '@/components/push-notification-prompt'
+import { DpdpConsentBanner } from '@/components/dpdp-consent-banner'
 import { AnalyticsSection } from '@/components/sections/analytics-section'
 
 const NAV_ITEMS: { id: SectionId; labelKey: string; icon: typeof InboxIcon }[] = [
@@ -410,6 +411,9 @@ export function AppShell() {
 
       {/* Web Push notification pre-prompt (MOTION-SYSTEM.md §15) */}
       <PushNotificationPrompt />
+
+      {/* DPDP consent notice (GAP H9) */}
+      <DpdpConsentBanner />
 
       {/* Global search dialog — searches across all inboxes */}
       <GlobalSearchInline />

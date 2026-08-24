@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   Settings as SettingsIcon, Moon, Sun, Bell, Volume2, Trash2, Download,
   ShieldCheck, Github, Heart, Clock, AtSign, Flame, Palette, Database, AlertTriangle,
-  Globe, Check,
+  Globe, Check, Mail, Send, RefreshCw,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -14,6 +14,7 @@ import { useI18n } from '@/hooks/use-i18n'
 import { LOCALES } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -299,6 +300,9 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
         </CardContent>
       </Card>
 
+      {/* Contact & Support (GAP M8) */}
+      <ContactSupportCard />
+
       {/* About footer */}
       <div className="rounded-xl border border-border/60 bg-muted/40 p-5 text-center">
         <p className="flex items-center justify-center gap-1.5 text-sm font-medium text-foreground/80">
@@ -483,4 +487,78 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const output = new Uint8Array(rawData.length)
   for (let i = 0; i < rawData.length; ++i) output[i] = rawData.charCodeAt(i)
   return output
+}
+
+// ---------- Contact & Support Card (GAP M8) ----------
+function ContactSupportCard() {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
+  const [honeypot, setHoneypot] = useState('') // hidden field for bots
+  const [sending, setSending] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !email.trim() || !subject.trim() || !message.trim()) return
+    setSending(true)
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, subject, message, website: honeypot }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to send')
+      toast.success('Message sent', { description: 'We\'ll get back to you soon.' })
+      setName(''); setEmail(''); setSubject(''); setMessage('')
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Mail className="h-4 w-4 text-emerald-500" /> Contact &amp; Support</CardTitle>
+        <CardDescription>Send us a message. Rate-limited to 3 per hour.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="contact-name">Name</Label>
+            <Input id="contact-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder="Your name" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="contact-email">Email</Label>
+            <Input id="contact-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} placeholder="you@example.com" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="contact-subject">Subject</Label>
+          <Input id="contact-subject" value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} placeholder="How can we help?" />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="contact-message">Message</Label>
+          <textarea
+            id="contact-message"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            maxLength={5000}
+            placeholder="Describe your issue or question…"
+            className="w-full min-h-[100px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
+        {/* Honeypot field — hidden from real users, bots fill it */}
+        <div className="hidden" aria-hidden="true">
+          <label>Website (leave empty)<input type="text" value={honeypot} onChange={(e) => setHoneypot(e.target.value)} tabIndex={-1} autoComplete="off" /></label>
+        </div>
+        <Button onClick={handleSubmit} disabled={!name.trim() || !email.trim() || !subject.trim() || !message.trim() || sending} className="gap-2">
+          {sending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          Send message
+        </Button>
+      </CardContent>
+    </Card>
+  )
 }

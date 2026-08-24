@@ -1062,7 +1062,13 @@ function MessageReader({
   const cat = CATEGORY_META[messageSummary.category] || CATEGORY_META.general
   const authFail = messageSummary.spf !== 'pass' || messageSummary.dkim !== 'pass' || messageSummary.dmarc !== 'pass'
   const spoofed = messageSummary.fromName !== messageSummary.fromEmail &&
-    /paypal|bank|secure|verify|official|government/i.test(messageSummary.fromName)
+    /paypal|bank|secure|verify|official|government|google|microsoft|apple|amazon|facebook/i.test(messageSummary.fromName)
+  // H5: Detect punycode domains (IDN homograph attacks)
+  const hasPunycode = /xn--/i.test(messageSummary.fromEmail)
+  // Detect display name that doesn't match the domain in the email address
+  const senderDomain = messageSummary.fromEmail.split('@')[1] || ''
+  const displayNameLooksLikeDomain = /\.[a-z]{2,}$/i.test(messageSummary.fromName) &&
+    messageSummary.fromName !== senderDomain
 
   const sanitizedHtml = useMemo(() => {
     if (!full?.bodyHtml) return ''
@@ -1154,12 +1160,28 @@ function MessageReader({
                   <AlertTriangle className="h-2.5 w-2.5" /> Display name looks suspicious
                 </Badge>
               )}
+              {hasPunycode && (
+                <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/20 text-[10px] gap-1">
+                  <AlertTriangle className="h-2.5 w-2.5" /> IDN domain (possible spoof)
+                </Badge>
+              )}
+              {displayNameLooksLikeDomain && (
+                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+                  <AlertTriangle className="h-2.5 w-2.5" /> Name mimics a domain
+                </Badge>
+              )}
               <Badge variant="outline" className={cn('text-[10px]', cat.color)}>{cat.label}</Badge>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground font-mono break-all">&lt;{messageSummary.fromEmail}&gt;</p>
             <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" /> {new Date(messageSummary.receivedAt).toLocaleString()}
             </p>
+            {(spoofed || hasPunycode || displayNameLooksLikeDomain) && (
+              <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1">
+                <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                <span>Authentication checks confirm the sending server's identity — they do not guarantee the message content is safe. Always verify the sender's real address above.</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -1240,7 +1262,23 @@ function MessageReader({
                 title="message body"
                 srcDoc={sanitizedHtml}
                 className="w-full min-h-[300px] border-0"
-                sandbox="allow-same-origin"
+                sandbox="allow-same-origin allow-popups"
+                ref={(el) => {
+                  // Attach external link interstitial handler
+                  if (el && el.contentWindow) {
+                    el.contentWindow.onclick = (e) => {
+                      const target = (e.target as HTMLElement).closest('a')
+                      if (target && target.href) {
+                        e.preventDefault()
+                        const url = target.href
+                        const domain = (() => { try { return new URL(url).hostname } catch { return url } })()
+                        if (confirm(`You're leaving StudentTemp to visit ${domain}.\n\nDo you want to continue to ${url}?`)) {
+                          window.open(url, '_blank', 'noopener,noreferrer')
+                        }
+                      }
+                    }
+                  }
+                }}
               />
             </motion.div>
           )}
