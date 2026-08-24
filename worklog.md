@@ -748,3 +748,83 @@ Unresolved / next-phase recommendations:
 6. **Pull-to-refresh** on message list (MOTION-SYSTEM §3.4) — not yet implemented.
 7. **Long-press context menu** on message cards (MOTION-SYSTEM §17) — not yet implemented.
 8. **Drag-to-reorder** for My Addresses tray (MOTION-SYSTEM §17) — not yet implemented.
+
+---
+Task ID: CRON-REVIEW-3
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, implement service worker, message reply/export, pull-to-refresh.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, i18n En/Hindi, analytics, command palette, keyboard shortcuts, Web Push prompt, app lock, swipe gestures all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- VLM rated Messages page 9/10
+
+**New features implemented:**
+
+1. **Service Worker registration (PWA + Web Push enabler)**
+   - Created `/public/sw.js` — real service worker with:
+     - Minimal offline shell (network-first for navigation, cache-first for static assets)
+     - Never intercepts API or Socket.IO (temp mail must always be fresh)
+     - `push` event handler — shows content-free notifications per SECURITY.md §35
+     - `notificationclick` handler — focuses/opens the app
+     - Clean cache versioning (studenttemp-shell-v1)
+   - Created `src/hooks/use-service-worker.ts` — registers SW after window load, checks for updates every 5 min
+   - Wired into app-shell via `useServiceWorker()` call
+   - Verified: SW registered at scope `/` ✓
+
+2. **Message Reply (real SMTP)**
+   - Created `/api/messages/[id]/reply` POST route — replies to the original sender via real SMTP
+     - Loads original message, verifies session ownership
+     - Sends via nodemailer with proper `In-Reply-To` and `References` headers
+     - Rate-limited (5/hour/IP)
+     - Audit-logged
+   - Created `ReplyDialog` component in messages-section — modal with:
+     - Shows recipient + auto-prefixed subject (Re: …)
+     - Textarea for reply body
+     - Quotes original message below
+     - Loading state while sending
+     - Success toast with delivery confirmation
+   - Added Reply button to reader header (emerald icon, prominent) + in More dropdown
+
+3. **Message Export as .eml (RFC 5322)**
+   - Created `/api/messages/[id]/export` GET route — downloads a real .eml file
+   - Generates proper RFC 5322 format with:
+     - Date, From, To, Subject, Message-ID headers
+     - MIME-Version 1.0
+     - multipart/alternative (text/plain + text/html)
+     - Correct Content-Transfer-Encoding
+   - Verified: curl with session cookie returns 200, 670 bytes, type=message/rfc822
+   - Added "Export as .eml" to reader More dropdown + toast on click
+   - Per GAPS.md M4: standard portable format, generated on-demand
+
+4. **Pull-to-Refresh on message list (MOTION-SYSTEM.md §3.4)**
+   - Created `src/components/pull-to-refresh.tsx` — wraps the message list
+   - Features:
+     - Elastic pull: content follows finger 1:1 up to threshold (70px), then rubber-bands
+     - Circular progress ring (SVG) fills as user pulls
+     - Brand icon (RefreshCw) rotates gently inside the ring
+     - On release past threshold: indicator spins during fetch, morphs into checkmark briefly
+     - Haptic feedback (Vibration API): 15ms tick at threshold, 10ms on complete
+     - Reduced-motion fallback: instant refresh, no pull gesture
+   - Wrapped the ScrollArea content in messages-section with PullToRefresh
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean (Next.js + real SMTP + Socket.IO + registered service worker)
+- Service worker verified registered at scope `/`
+- Real .eml export verified: 200 OK, message/rfc822, proper RFC 5322 format with multipart/alternative
+- Reply dialog verified: opens, fills, sends (dev SMTP rejects external recipients as expected — in production with a real relay this would deliver to real addresses)
+- Pull-to-refresh wired into message list (touch gestures, haptic, reduced-motion fallback)
+- VLM rated Messages page 9/10
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Long-press context menu** on message cards (MOTION-SYSTEM §17) — not yet implemented
+2. **Drag-to-reorder** for My Addresses tray (MOTION-SYSTEM §17) — not yet implemented
+3. **Real VAPID key pair** — configure `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + server-side private key for real push delivery (the SW + PushManager subscription is wired; only the key pair is needed)
+4. **More i18n languages** — Odia, Telugu, Tamil, Bengali, Marathi dictionaries (PRD §3.2)
+5. **Full Hindi translation** — some descriptive strings + FAQ content still in English
+6. **Real ClamAV integration** for attachment scanning (marked with `// no ClamAV in dev`)
+7. **Message forwarding** (forward to another temp inbox) — could extend the reply API
+8. **Inbox-wide search** across all inboxes (currently search is per-active-inbox)

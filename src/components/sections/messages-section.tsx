@@ -9,7 +9,7 @@ import {
 import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
-  CheckCheck, Ban, AlertTriangle, Clock,
+  CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -27,6 +27,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { PullToRefresh } from '@/components/pull-to-refresh'
 
 const CATEGORY_META: Record<string, { label: string; color: string }> = {
   otp: { label: 'OTP', color: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20' },
@@ -317,6 +318,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
             )}
           </div>
           <ScrollArea className="h-[55vh] lg:h-[65vh] scrollbar-thin">
+            <PullToRefresh onRefresh={async () => { await refetch() }}>
             {isFetching && messages.length === 0 ? (
               <div className="p-3 space-y-2">
                 {[0, 1, 2, 3].map((i) => (
@@ -366,6 +368,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                 </AnimatePresence>
               </ul>
             )}
+            </PullToRefresh>
           </ScrollArea>
         </div>
 
@@ -739,7 +742,9 @@ function MessageReader({
   const [showRaw, setShowRaw] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [showReport, setShowReport] = useState(false)
+  const [showReply, setShowReply] = useState(false)
   const [imagesLoaded, setImagesLoaded] = useState(false)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     let active = true
@@ -788,6 +793,9 @@ function MessageReader({
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleStar} title={messageSummary.isStarred ? 'Unstar' : 'Star'}>
             <Star className={cn('h-4 w-4', messageSummary.isStarred && 'text-amber-500 fill-amber-500')} />
           </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:bg-emerald-500/10" onClick={() => setShowReply(true)} title="Reply">
+            <Reply className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-500/10" onClick={onDelete} title="Delete">
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -803,6 +811,18 @@ function MessageReader({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setShowRaw(!showRaw)} className="gap-2">
                 <Mail className="h-3.5 w-3.5" /> {showRaw ? 'HTML view' : 'Plain text view'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowReply(true)} className="gap-2">
+                <Reply className="h-3.5 w-3.5" /> Reply to sender
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  window.open(`/api/messages/${messageSummary.id}/export`, '_blank')
+                  toast.success('Exporting as .eml…')
+                }}
+                className="gap-2"
+              >
+                <Download className="h-3.5 w-3.5" /> Export as .eml
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowReport(true)} className="gap-2 text-red-600">
@@ -931,6 +951,15 @@ function MessageReader({
           <ReportForm onSubmit={(reason, category) => { onReport(reason, category); setShowReport(false) }} />
         </DialogContent>
       </Dialog>
+
+      <ReplyDialog
+        open={showReply}
+        onOpenChange={setShowReply}
+        messageId={messageSummary.id}
+        to={messageSummary.fromEmail}
+        toName={messageSummary.fromName}
+        subject={messageSummary.subject}
+      />
     </motion.div>
   )
 }
@@ -1005,5 +1034,82 @@ function EmptyState({ icon, title, description, compact }: { icon: React.ReactNo
       <h3 className="font-semibold">{title}</h3>
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">{description}</p>
     </div>
+  )
+}
+
+// ---------- Reply Dialog ----------
+function ReplyDialog({
+  open, onOpenChange, messageId, to, toName, subject,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  messageId: string
+  to: string
+  toName: string
+  subject: string
+}) {
+  const [body, setBody] = useState('')
+  const mutation = useMutation({
+    mutationFn: (text: string) =>
+      fetch(`/api/messages/${messageId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      }).then(async (r) => {
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'Reply failed')
+        return data
+      }),
+    onSuccess: (data) => {
+      toast.success('Reply sent', {
+        description: `Delivered to ${to}`,
+        duration: 3000,
+      })
+      setBody('')
+      onOpenChange(false)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Reply className="h-4 w-4 text-emerald-500" /> Reply to sender</DialogTitle>
+          <DialogDescription>
+            Your reply will be sent via real SMTP from your inbox to <span className="font-mono font-medium">{to}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
+            <div className="flex gap-2"><span className="text-muted-foreground w-12 shrink-0">To:</span><span className="font-mono break-all">{toName} &lt;{to}&gt;</span></div>
+            <div className="flex gap-2"><span className="text-muted-foreground w-12 shrink-0">Subject:</span><span className="font-medium">{replySubject}</span></div>
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Type your reply…"
+            className="w-full min-h-[140px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            autoFocus
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Rate-limited to 5 replies/hour. The original message is quoted below your reply.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => mutation.mutate(body)}
+            disabled={!body.trim() || mutation.isPending}
+            className="gap-2"
+          >
+            {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Send reply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -12,6 +12,7 @@ import { useBroadcastChannel } from '@/hooks/use-broadcast'
 import { useSound } from '@/hooks/use-settings'
 import { useI18n } from '@/hooks/use-i18n'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+import { useServiceWorker } from '@/hooks/use-service-worker'
 import { toast } from 'sonner'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SideDrawer } from '@/components/side-drawer'
@@ -77,6 +78,7 @@ export function AppShell() {
   // j/k message navigation, ⌘K palette, ? shortcuts help, Esc dismiss).
   // Internally suppresses shortcuts while typing in inputs (except ⌘K + Esc).
   useKeyboardShortcuts()
+  useServiceWorker()
 
   // Command palette + shortcuts help are driven by store state so both the
   // hook and the header ⌘K button can open them.
