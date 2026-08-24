@@ -1,0 +1,76 @@
+// StudentTemp — privacy-first temporary email platform
+// Prisma schema (SQLite)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Inbox {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  localPart   String
+  domain      String
+  isCustom    Boolean   @default(false)
+  category    String    @default("general") // otp, registration, newsletter, social, shopping, general
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  sessionId   String
+  burnOnRead  Boolean   @default(false)
+  messages    Message[]
+
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model Message {
+  id            String   @id @default(cuid())
+  inboxId       String
+  inbox         Inbox    @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  fromEmail     String
+  fromName      String
+  subject       String
+  previewText  String
+  bodyText      String
+  bodyHtml      String
+  isRead        Boolean  @default(false)
+  isStarred     Boolean  @default(false)
+  receivedAt    DateTime @default(now())
+  spf           String   @default("pass") // pass, fail, none, softfail
+  dkim          String   @default("pass")
+  dmarc         String   @default("pass")
+  scanStatus    String   @default("clean") // clean, scanning, quarantined
+  hasAttachment Boolean  @default(false)
+  attachments   String   @default("[]") // JSON array
+  category      String   @default("general") // otp, registration, newsletter, social, shopping, general, security
+  externalResourcesBlocked Int @default(0)
+  isReported    Boolean  @default(false)
+
+  @@index([inboxId])
+  @@index([receivedAt])
+}
+
+model AbuseReport {
+  id          String   @id @default(cuid())
+  messageId   String
+  reason      String
+  category    String   @default("spam") // spam, phishing, abuse, other
+  createdAt   DateTime @default(now())
+}
+
+model SessionSettings {
+  id                String   @id @default(cuid())
+  sessionId         String   @unique
+  theme             String   @default("system") // light, dark, system
+  soundEnabled      Boolean  @default(false)
+  autoDeleteOnRead  Boolean  @default(false)
+  defaultLifetime   Int      @default(10) // minutes
+  defaultDomain     String   @default("studentbox.in")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

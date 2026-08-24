@@ -1,0 +1,688 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
+  Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
+  CheckCheck, Ban, AlertTriangle, Clock,
+} from 'lucide-react'
+import { api } from '@/lib/api-client'
+import { useAppStore } from '@/lib/store'
+import type { MessageSummary, MessageFull } from '@/lib/types'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
+
+const CATEGORY_META: Record<string, { label: string; color: string }> = {
+  otp: { label: 'OTP', color: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20' },
+  registration: { label: 'Registration', color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
+  newsletter: { label: 'Newsletter', color: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20' },
+  social: { label: 'Social', color: 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20' },
+  shopping: { label: 'Shopping', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
+  security: { label: 'Security', color: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' },
+  general: { label: 'General', color: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20' },
+}
+
+function sanitizeHtml(html: string): string {
+  if (!html) return '<p style="color:#999;font-family:Arial">(empty body)</p>'
+  let out = html
+  out = out.replace(/<script[\s\S]*?<\/script>/gi, '')
+  out = out.replace(/<style[\s\S]*?<\/style>/gi, '')
+  out = out.replace(/\son\w+="[^"]*"/gi, '')
+  out = out.replace(/\son\w+='[^']*'/gi, '')
+  out = out.replace(/javascript:/gi, '')
+  out = out.replace(/(<img[^>]+)src=["']https?:\/\/[^"']*["']/gi, '$1data-src-blocked="true"')
+  out = out.replace(/<link[^>]+href=["']https?:\/\/[^"']*["'][^>]*>/gi, '')
+  out = out.replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+  return `<base target="_blank"><style>body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;background:#fff;line-height:1.6;margin:0;padding:12px}a{color:#0ea5e9}img{max-width:100%;height:auto}</style>${out}`
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+export function MessagesSection({ triggerGenerate: _triggerGenerate }: { triggerGenerate: (email: string) => void }) {
+  const activeInboxId = useAppStore((s) => s.activeInboxId)
+  const inboxes = useAppStore((s) => s.inboxes)
+  const messages = useAppStore((s) => s.messages)
+  const setMessages = useAppStore((s) => s.setMessages)
+  const updateMessage = useAppStore((s) => s.updateMessage)
+  const removeMessage = useAppStore((s) => s.removeMessage)
+  const openMessageId = useAppStore((s) => s.openMessageId)
+  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+  const freshMessageId = useAppStore((s) => s.freshMessageId)
+  const queryClient = useQueryClient()
+
+  const activeInbox = inboxes.find((i) => i.id === activeInboxId)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+
+  const { data: msgData, isFetching, refetch } = useQuery({
+    queryKey: ['messages', activeInboxId],
+    queryFn: () => api.listMessages(activeInboxId!),
+    enabled: !!activeInboxId,
+    refetchInterval: 30_000,
+  })
+
+  useEffect(() => {
+    if (msgData?.messages) {
+      setMessages(msgData.messages)
+    }
+  }, [msgData, setMessages])
+
+  const filtered = messages.filter((m) => {
+    if (filter === 'unread' && m.isRead) return false
+    if (filter === 'starred' && !m.isStarred) return false
+    if (query) {
+      const q = query.toLowerCase()
+      return (
+        m.subject.toLowerCase().includes(q) ||
+        m.fromName.toLowerCase().includes(q) ||
+        m.fromEmail.toLowerCase().includes(q) ||
+        m.previewText.toLowerCase().includes(q)
+      )
+    }
+    return true
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
+      api.updateMessage(id, data),
+    onSuccess: (_d, vars) => {
+      updateMessage(vars.id, vars.data)
+      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteMessage(id),
+    onSuccess: (_d, id) => {
+      removeMessage(id)
+      setOpenMessageId(null)
+      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+      toast.success('Message deleted')
+    },
+  })
+
+  const reportMutation = useMutation({
+    mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
+      api.reportMessage(id, reason, category),
+    onSuccess: () => {
+      toast.success('Message reported. Our team will review it.')
+      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+    },
+  })
+
+  if (!activeInbox) {
+    return (
+      <EmptyState
+        icon={<InboxIcon className="h-8 w-8" />}
+        title="No active inbox"
+        description="Generate an inbox on the Inbox tab to start receiving messages."
+      />
+    )
+  }
+
+  const openMsg = openMessageId ? messages.find((m) => m.id === openMessageId) : null
+
+  return (
+    <div className="space-y-4">
+      {/* Header / toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <Mail className="h-5 w-5 text-emerald-500" /> Messages
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground font-mono truncate">{activeInbox.email}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-1.5">
+            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} /> Refresh
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost" className="gap-1.5 capitalize">
+                {filter}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setFilter('all')}>All messages</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setFilter('unread')}>Unread only</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setFilter('starred')}>Starred only</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search subject, sender, or content..."
+          className="pl-9"
+        />
+        {query && (
+          <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Message list + reader (split view on desktop, stacked on mobile) */}
+      <div className="grid lg:grid-cols-[1fr_1.4fr] gap-4">
+        {/* List */}
+        <div className="rounded-xl border border-border/60 bg-card overflow-hidden order-1">
+          <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {filtered.length} {filtered.length === 1 ? 'message' : 'messages'}
+            </span>
+            {messages.filter((m) => !m.isRead).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs gap-1"
+                onClick={() => {
+                  messages.filter((m) => !m.isRead).forEach((m) =>
+                    updateMutation.mutate({ id: m.id, data: { isRead: true } })
+                  )
+                }}
+              >
+                <CheckCheck className="h-3 w-3" /> Mark all read
+              </Button>
+            )}
+          </div>
+          <ScrollArea className="h-[55vh] lg:h-[65vh] scrollbar-thin">
+            {isFetching && messages.length === 0 ? (
+              <div className="p-3 space-y-2">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="rounded-lg p-3 border border-border/40">
+                    <div className="flex gap-3">
+                      <Skeleton className="h-10 w-10 rounded-full" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-3 w-2/3" />
+                        <Skeleton className="h-3 w-1/2" />
+                        <Skeleton className="h-2 w-full" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <EmptyState
+                icon={<Mail className="h-7 w-7" />}
+                title={query || filter !== 'all' ? 'No matching messages' : 'No messages yet'}
+                description={
+                  query || filter !== 'all'
+                    ? 'Try a different search or filter.'
+                    : 'New messages will appear here in real time as they arrive.'
+                }
+                compact
+              />
+            ) : (
+              <ul className="divide-y divide-border/40">
+                <AnimatePresence initial={false}>
+                  {filtered.map((msg) => (
+                    <MessageListItem
+                      key={msg.id}
+                      msg={msg}
+                      active={openMessageId === msg.id}
+                      fresh={freshMessageId === msg.id}
+                      onOpen={() => setOpenMessageId(msg.id)}
+                      onToggleRead={() => updateMutation.mutate({ id: msg.id, data: { isRead: !msg.isRead } })}
+                      onToggleStar={() => updateMutation.mutate({ id: msg.id, data: { isStarred: !msg.isStarred } })}
+                      onDelete={() => deleteMutation.mutate(msg.id)}
+                      onReport={(reason, category) => reportMutation.mutate({ id: msg.id, reason, category })}
+                    />
+                  ))}
+                </AnimatePresence>
+              </ul>
+            )}
+          </ScrollArea>
+        </div>
+
+        {/* Reader */}
+        <div className="rounded-xl border border-border/60 bg-card overflow-hidden min-h-[55vh] lg:min-h-[65vh] order-2">
+          <AnimatePresence mode="wait">
+            {openMsg ? (
+              <MessageReader
+                key={openMsg.id}
+                messageSummary={openMsg}
+                onBack={() => setOpenMessageId(null)}
+                onDelete={() => deleteMutation.mutate(openMsg.id)}
+                onToggleStar={() => updateMutation.mutate({ id: openMsg.id, data: { isStarred: !openMsg.isStarred } })}
+                onReport={(reason, category) => reportMutation.mutate({ id: openMsg.id, reason, category })}
+              />
+            ) : (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="grid place-items-center h-full min-h-[55vh] p-8"
+              >
+                <div className="text-center max-w-sm">
+                  <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+                    <MailOpen className="h-8 w-8" />
+                  </div>
+                  <h3 className="font-semibold">Select a message</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Tap any message on the left to read it here. Messages render with external resources blocked for your safety.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------- Message List Item ----------------
+function MessageListItem({
+  msg, active, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport,
+}: {
+  msg: MessageSummary
+  active: boolean
+  fresh: boolean
+  onOpen: () => void
+  onToggleRead: () => void
+  onToggleStar: () => void
+  onDelete: () => void
+  onReport: (reason: string, category: string) => void
+}) {
+  const cat = CATEGORY_META[msg.category] || CATEGORY_META.general
+  const hasAuthIssue = msg.spf !== 'pass' || msg.dkim !== 'pass' || msg.dmarc !== 'pass'
+
+  return (
+    <motion.li
+      layout
+      initial={fresh ? { opacity: 0, y: -16 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      className={cn(
+        'relative group cursor-pointer transition-colors',
+        active ? 'bg-accent/60' : 'hover:bg-accent/30',
+        fresh && 'bg-emerald-500/5'
+      )}
+    >
+      <button onClick={onOpen} className="w-full text-left p-3 flex gap-3">
+        <div className="relative shrink-0">
+          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+            {msg.fromName[0]?.toUpperCase() || '?'}
+          </div>
+          {!msg.isRead && (
+            <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className={cn('text-sm truncate', msg.isRead ? 'font-medium text-foreground' : 'font-bold text-foreground')}>
+              {msg.fromName}
+            </span>
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {formatTime(msg.receivedAt)}
+            </span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <span className={cn('text-sm truncate flex-1', msg.isRead ? 'text-foreground/80' : 'text-foreground font-semibold')}>
+              {msg.subject}
+            </span>
+            {msg.isStarred && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" />}
+            {msg.hasAttachment && <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+            {hasAuthIssue && <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground truncate">{msg.previewText}</p>
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-4', cat.color)}>{cat.label}</Badge>
+            {msg.scanStatus === 'quarantined' && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-red-500/10 text-red-600 border-red-500/20">
+                <Ban className="h-2.5 w-2.5 mr-0.5" /> Quarantined
+              </Badge>
+            )}
+            {msg.externalResourcesBlocked > 0 && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">
+                <Ban className="h-2.5 w-2.5 mr-0.5" /> {msg.externalResourcesBlocked} blocked
+              </Badge>
+            )}
+          </div>
+        </div>
+      </button>
+
+      {/* Hover quick actions */}
+      <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-0.5 bg-background/90 backdrop-blur rounded-lg border border-border/60 p-0.5 shadow-sm">
+        <button onClick={(e) => { e.stopPropagation(); onToggleStar() }} title={msg.isStarred ? 'Unstar' : 'Star'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+          <Star className={cn('h-3.5 w-3.5', msg.isStarred && 'text-amber-500 fill-amber-500')} />
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onToggleRead() }} title={msg.isRead ? 'Mark unread' : 'Mark read'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+          {msg.isRead ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete" className="grid h-7 w-7 place-items-center rounded hover:bg-red-500/10 text-red-500">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button onClick={(e) => e.stopPropagation()} title="More" className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+              <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onReport('Spam or promotional abuse', 'spam')} className="gap-2 text-red-600">
+              <Flag className="h-3.5 w-3.5" /> Report as spam
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onReport('Phishing or fraud attempt', 'phishing')} className="gap-2 text-red-600">
+              <Flag className="h-3.5 w-3.5" /> Report phishing
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onReport('Other', 'other')} className="gap-2 text-red-600">
+              <Flag className="h-3.5 w-3.5" /> Report (other)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </motion.li>
+  )
+}
+
+// ---------------- Message Reader ----------------
+function MessageReader({
+  messageSummary, onBack, onDelete, onToggleStar, onReport,
+}: {
+  messageSummary: MessageSummary
+  onBack: () => void
+  onDelete: () => void
+  onToggleStar: () => void
+  onReport: (reason: string, category: string) => void
+}) {
+  const [full, setFull] = useState<MessageFull | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showRaw, setShowRaw] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+  const [imagesLoaded, setImagesLoaded] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setFull(null)
+    setImagesLoaded(false)
+    api.getMessage(messageSummary.id).then((data) => {
+      if (active) {
+        setFull(data.message)
+        setLoading(false)
+      }
+    }).catch(() => setLoading(false))
+    return () => { active = false }
+  }, [messageSummary.id])
+
+  const cat = CATEGORY_META[messageSummary.category] || CATEGORY_META.general
+  const authFail = messageSummary.spf !== 'pass' || messageSummary.dkim !== 'pass' || messageSummary.dmarc !== 'pass'
+  const spoofed = messageSummary.fromName !== messageSummary.fromEmail &&
+    /paypal|bank|secure|verify|official|government/i.test(messageSummary.fromName)
+
+  const sanitizedHtml = useMemo(() => {
+    if (!full?.bodyHtml) return ''
+    let out = full.bodyHtml
+    if (imagesLoaded) {
+      // restore blocked image srcs
+      out = out.replace(/(<img[^>]+)data-src-blocked=["']true["']/gi, '$1')
+    } else {
+      out = out.replace(/(<img[^>]+)src=["']https?:\/\/[^"']*["']/gi, '$1data-src-blocked="true"')
+    }
+    return sanitizeHtml(out)
+  }, [full?.bodyHtml, imagesLoaded])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
+      transition={{ duration: 0.2 }}
+      className="flex flex-col h-full min-h-[55vh] lg:min-h-[65vh]"
+    >
+      {/* Reader header */}
+      <div className="border-b border-border/60 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onBack} className="gap-1 lg:hidden">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <div className="flex-1" />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleStar} title={messageSummary.isStarred ? 'Unstar' : 'Star'}>
+            <Star className={cn('h-4 w-4', messageSummary.isStarred && 'text-amber-500 fill-amber-500')} />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-500/10" onClick={onDelete} title="Delete">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="More">
+                <ChevronRight className="h-4 w-4 rotate-90" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setShowAuth(!showAuth)} className="gap-2">
+                <ShieldCheck className="h-3.5 w-3.5" /> {showAuth ? 'Hide' : 'Show'} security panel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowRaw(!showRaw)} className="gap-2">
+                <Mail className="h-3.5 w-3.5" /> {showRaw ? 'HTML view' : 'Plain text view'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowReport(true)} className="gap-2 text-red-600">
+                <Flag className="h-3.5 w-3.5" /> Report this message
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <h2 className="text-lg font-bold leading-tight">{messageSummary.subject}</h2>
+
+        <div className="flex items-start gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+            {messageSummary.fromName[0]?.toUpperCase() || '?'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-sm">{messageSummary.fromName}</span>
+              {spoofed && (
+                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+                  <AlertTriangle className="h-2.5 w-2.5" /> Display name looks suspicious
+                </Badge>
+              )}
+              <Badge variant="outline" className={cn('text-[10px]', cat.color)}>{cat.label}</Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground font-mono break-all">&lt;{messageSummary.fromEmail}&gt;</p>
+            <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" /> {new Date(messageSummary.receivedAt).toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        {/* Auth panel */}
+        <AnimatePresence>
+          {showAuth && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-3 gap-2 pt-2">
+                <AuthChip label="SPF" value={messageSummary.spf} />
+                <AuthChip label="DKIM" value={messageSummary.dkim} />
+                <AuthChip label="DMARC" value={messageSummary.dmarc} />
+              </div>
+              {authFail && (
+                <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300 flex gap-2">
+                  <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>One or more authentication checks failed. Be cautious — the sender's identity could not be fully verified.</span>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Attachments */}
+        {full && full.attachments && full.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {full.attachments.map((a, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 text-xs">
+                <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="font-medium">{a.name}</span>
+                <span className="text-muted-foreground">{(a.size / 1024).toFixed(0)} KB</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* External resources blocked banner */}
+      {messageSummary.externalResourcesBlocked > 0 && !imagesLoaded && (
+        <motion.div
+          initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+          className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300"
+        >
+          <Ban className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{messageSummary.externalResourcesBlocked} external resource{messageSummary.externalResourcesBlocked !== 1 ? 's' : ''} blocked for your safety.</span>
+          <button
+            onClick={() => setImagesLoaded(true)}
+            className="font-medium underline-offset-2 hover:underline"
+          >
+            Load anyway
+          </button>
+        </motion.div>
+      )}
+
+      {/* Body */}
+      <ScrollArea className="flex-1 scrollbar-thin">
+        <div className="p-4">
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ) : showRaw ? (
+            <pre className="whitespace-pre-wrap break-words text-sm font-mono text-foreground/80">
+              {full?.bodyText}
+            </pre>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <iframe
+                title="message body"
+                srcDoc={sanitizedHtml}
+                className="w-full min-h-[300px] border-0"
+                sandbox="allow-same-origin"
+              />
+            </motion.div>
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Report dialog */}
+      <Dialog open={showReport} onOpenChange={setShowReport}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Flag className="h-4 w-4 text-red-500" /> Report this message</DialogTitle>
+            <DialogDescription>
+              Flag this message for review. The sender is not notified.
+            </DialogDescription>
+          </DialogHeader>
+          <ReportForm onSubmit={(reason, category) => { onReport(reason, category); setShowReport(false) }} />
+        </DialogContent>
+      </Dialog>
+    </motion.div>
+  )
+}
+
+function ReportForm({ onSubmit }: { onSubmit: (reason: string, category: string) => void }) {
+  const [category, setCategory] = useState('spam')
+  const [reason, setReason] = useState('')
+  return (
+    <div className="space-y-4 py-2">
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          { v: 'spam', l: 'Spam / Promo' },
+          { v: 'phishing', l: 'Phishing / Fraud' },
+          { v: 'abuse', l: 'Abuse / Harassment' },
+          { v: 'other', l: 'Other' },
+        ].map((o) => (
+          <button
+            key={o.v}
+            onClick={() => setCategory(o.v)}
+            className={cn(
+              'rounded-lg border px-3 py-2 text-sm font-medium transition-colors text-left',
+              category === o.v ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-accent'
+            )}
+          >
+            {o.l}
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Add details (optional)..."
+        className="w-full min-h-[80px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <DialogFooter>
+        <Button onClick={() => onSubmit(reason, category)} className="gap-2">
+          <Flag className="h-4 w-4" /> Submit report
+        </Button>
+      </DialogFooter>
+    </div>
+  )
+}
+
+function AuthChip({ label, value }: { label: string; value: string }) {
+  const pass = value === 'pass'
+  const warn = value === 'softfail' || value === 'none'
+  return (
+    <div className={cn(
+      'rounded-lg border p-2 text-center',
+      pass && 'bg-emerald-500/10 border-emerald-500/20',
+      warn && 'bg-amber-500/10 border-amber-500/20',
+      !pass && !warn && 'bg-red-500/10 border-red-500/20',
+    )}>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={cn(
+        'text-sm font-bold flex items-center justify-center gap-1',
+        pass && 'text-emerald-600 dark:text-emerald-400',
+        warn && 'text-amber-600 dark:text-amber-400',
+        !pass && !warn && 'text-red-600 dark:text-red-400',
+      )}>
+        {pass ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({ icon, title, description, compact }: { icon: React.ReactNode; title: string; description: string; compact?: boolean }) {
+  return (
+    <div className={cn('flex flex-col items-center justify-center text-center', compact ? 'p-8' : 'p-12')}>
+      <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
+      <h3 className="font-semibold">{title}</h3>
+      <p className="mt-1 max-w-xs text-sm text-muted-foreground">{description}</p>
+    </div>
+  )
+}
