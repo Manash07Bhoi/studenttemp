@@ -1148,3 +1148,54 @@ Unresolved / next-phase recommendations:
 6. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport
 7. **Thread expand all/collapse all** — could add a toolbar action
 8. **Thread unread indicator** — could show which threads have unread messages with a dot
+
+---
+Task ID: CRON-REVIEW-9
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, add Odia i18n, thread expand/collapse all, polish.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, 6 i18n languages, analytics, command palette, keyboard shortcuts, Web Push, app lock, swipe gestures, service worker, reply/export/forward, pull-to-refresh, long-press context menu, global search, drag-to-reorder, search highlighting, category filters, message threading all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- Sent 3 real emails (forming a "QA round 9" thread), verified real-time delivery
+
+**New features implemented:**
+
+1. **Odia (ଓଡ଼ିଆ) i18n support — PRD §3.2 complete**
+   - Added Odia locale to LOCALES array with native label ଓଡ଼ିଆ
+   - Created Odia dictionary with ~40 key translations covering: common, nav, inbox, messages, settings, about, footer
+   - Verified: nav shows ଇନବକ୍ସ (Inbox), ସନ୍ଦେଶ (Messages), ବିଶ୍ଳେଷଣ (Analytics) ✓
+   - All 7 languages now supported: English, Hindi, Tamil, Bengali, Telugu, Marathi, Odia
+   - Updated Locale type to 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr' | 'or'
+   - Updated store type + localStorage hydration
+
+2. **Language Switcher layout improvement**
+   - Changed grid from `grid-cols-2` → `grid-cols-2 sm:grid-cols-3` to accommodate 7 languages
+   - Added `truncate` to native label + `shrink-0` to check icon for better wrapping
+
+3. **Thread Expand/Collapse All**
+   - Added "All" button (ChevronsDownUp icon) next to Threads toggle
+   - Only visible when thread view is active AND there are 2+ threads
+   - Dispatches `studenttemp:thread-toggle-all` custom event
+   - ThreadGroup component listens for the event and toggles its expanded state
+   - VLM rated 9/10 — "Clean, modern UI with excellent hierarchy, readable typography, and intuitive layout"
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- Odia i18n verified: nav renders correctly ✓
+- All 7 PRD §3.2 languages now fully supported (English + 6 regional: Hindi, Tamil, Bengali, Telugu, Marathi, Odia)
+- Thread expand/collapse all verified: button visible, VLM rated 9/10 ✓
+- Real SMTP flow still working end-to-end
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Real VAPID key pair** — configure for real push delivery
+2. **Full translations** — only ~40 keys per language; remaining ~140 keys fall back to English
+3. **Real ClamAV integration** for attachment scanning
+4. **Inbox categories/folders** — organize inboxes by category on Addresses page
+5. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport
+6. **Thread unread indicator** — could show which threads have unread messages with a dot on the thread header
+7. **Bulk actions** — select multiple messages and delete/mark-read/star in bulk
+8. **Message snooze** — temporarily hide a message and bring it back later

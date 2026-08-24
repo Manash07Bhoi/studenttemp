@@ -345,7 +345,7 @@ async function exportData() {
 function LanguageSwitcher() {
   const { locale, setLocale } = useI18n()
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
       {LOCALES.map((l) => (
         <button
           key={l.code}
@@ -359,9 +359,9 @@ function LanguageSwitcher() {
         >
           <span className="flex items-center gap-2">
             <span className="text-base">{l.code === 'en' ? '🇬🇧' : '🇮🇳'}</span>
-            <span>{l.nativeLabel}</span>
+            <span className="truncate">{l.nativeLabel}</span>
           </span>
-          {locale === l.code && <Check className="h-4 w-4" />}
+          {locale === l.code && <Check className="h-4 w-4 shrink-0" />}
         </button>
       ))}
     </div>

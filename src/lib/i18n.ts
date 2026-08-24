@@ -1,8 +1,8 @@
-// StudentTemp i18n — English + Hindi + Tamil + Bengali + Telugu + Marathi (with RTL-ready structure for future Arabic)
+// StudentTemp i18n — English + Hindi + Tamil + Bengali + Telugu + Marathi + Odia (with RTL-ready structure for future Arabic)
 // Per PRD §3.2: "Regional language UI (Hindi, Odia, Telugu, Tamil, Bengali, Marathi)"
-// Ships all 6 languages per PRD; structure makes adding more trivial.
+// Ships all 7 languages (6 regional + English); structure makes adding more trivial.
 
-export type Locale = 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr'
+export type Locale = 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr' | 'or'
 
 export const LOCALES: { code: Locale; label: string; nativeLabel: string; dir: 'ltr' | 'rtl' }[] = [
   { code: 'en', label: 'English', nativeLabel: 'English', dir: 'ltr' },
@@ -11,6 +11,7 @@ export const LOCALES: { code: Locale; label: string; nativeLabel: string; dir: '
   { code: 'bn', label: 'Bengali', nativeLabel: 'বাংলা', dir: 'ltr' },
   { code: 'te', label: 'Telugu', nativeLabel: 'తెలుగు', dir: 'ltr' },
   { code: 'mr', label: 'Marathi', nativeLabel: 'मराठी', dir: 'ltr' },
+  { code: 'or', label: 'Odia', nativeLabel: 'ଓଡ଼ିଆ', dir: 'ltr' },
 ]
 
 export const DEFAULT_LOCALE: Locale = 'en'
@@ -484,7 +485,52 @@ const mr: Dict = {
   'footer.disclaimer': 'हा एक खाजगी तात्पुरता पत्ता आहे, अधिकृत संस्था ईमेल नाही.',
 }
 
-const dicts: Record<Locale, Dict> = { en, hi, ta, bn, te, mr }
+const or: Dict = {
+  'common.appName': 'StudentTemp',
+  'common.tagline': 'ଡିସ୍ପୋଜେବଲ୍ ଇମେଲ୍',
+  'common.live': 'ଲାଇଭ୍',
+  'common.connecting': 'ସଂଯୋଗ କରୁଛି',
+  'common.copy': 'କପି',
+  'common.copied': 'କପି ହୋଇଛି',
+  'common.delete': 'ଡିଲିଟ୍',
+  'common.cancel': 'ବାତିଲ୍',
+  'common.refresh': 'ରିଫ୍ରେସ୍',
+  'common.search': 'ସନ୍ଧାନ',
+  'common.loading': 'ଲୋଡ୍ ହେଉଛି…',
+  'common.save': 'ସେଭ୍',
+  'common.saved': 'ସେଭ୍ ହୋଇଛି',
+  'nav.inbox': 'ଇନବକ୍ସ',
+  'nav.messages': 'ସନ୍ଦେଶ',
+  'nav.addresses': 'ଠିକଣା',
+  'nav.compose': 'ଲେଖନ୍ତୁ',
+  'nav.analytics': 'ବିଶ୍ଳେଷଣ',
+  'nav.settings': 'ସେଟିଂସ୍',
+  'nav.about': 'ବିଷୟରେ',
+  'inbox.yourTemporaryInbox': 'ଆପଣଙ୍କର ଅସ୍ଥାୟୀ ଇନବକ୍ସ',
+  'inbox.noActiveInbox': 'କୌଣସି ସକ୍ରିୟ ଇନବକ୍ସ ନାହିଁ',
+  'inbox.generateMyInbox': 'ମୋର ଇନବକ୍ସ ସୃଷ୍ଟି କରନ୍ତୁ',
+  'inbox.howItWorks': 'ଏହା କିପରି କାମ କରେ',
+  'inbox.safetyPrivacy': 'ସୁରକ୍ଷା ଓ ଗୋପନୀୟତା',
+  'inbox.domain': 'ଡୋମେନ୍',
+  'inbox.created': 'ସୃଷ୍ଟି ହୋଇଛି',
+  'inbox.messages': 'ସନ୍ଦେଶ',
+  'inbox.mode': 'ମୋଡ୍',
+  'messages.title': 'ସନ୍ଦେଶ',
+  'messages.searchPlaceholder': 'ବିଷୟ, ପ୍ରେରକ ବା ବିଷୟବସ୍ତୁ ସନ୍ଧାନ କରନ୍ତୁ…',
+  'messages.all': 'ସମସ୍ତ',
+  'messages.unread': 'ଅପଠିତ',
+  'messages.starred': 'ତାରକା ଚିହ୍ନିତ',
+  'messages.noMessages': 'ଏବେ ବି କୌଣସି ସନ୍ଦେଶ ନାହିଁ',
+  'messages.selectMessage': 'ଗୋଟିଏ ସନ୍ଦେଶ ବାଛନ୍ତୁ',
+  'settings.title': 'ସେଟିଂସ୍',
+  'settings.dataPrivacy': 'ଡାଟା ଓ ଗୋପନୀୟତା',
+  'settings.notificationsFeedback': 'ବିଜ୍ଞପ୍ତି ଓ ମତାମତ',
+  'about.heroTitle': 'ଛାତ୍ର, ଡେଭେଲପର୍ ଏବଂ ପରୀକ୍ଷକଙ୍କ ପାଇଁ ଗୋପନୀୟତା-ପ୍ରଥମ ଅସ୍ଥାୟୀ ଇମେଲ୍ ପ୍ଲାଟଫର୍ମ।',
+  'footer.privacyFirst': 'ଗୋପନୀୟତା-ପ୍ରଥମ · ଟ୍ରାକିଂ ନାହିଁ · ସାଇନ୍-ଅପ୍ ନାହିଁ',
+  'footer.disclaimer': 'ଏହା ଏକ ବ୍ୟକ୍ତିଗତ ଅସ୍ଥାୟୀ ଠିକଣା, ଅଧିକାରୀକ ସଂସ୍ଥା ଇମେଲ୍ ନୁହେଁ।',
+}
+
+const dicts: Record<Locale, Dict> = { en, hi, ta, bn, te, mr, or }
 
 export function translate(locale: Locale, key: string, fallback?: string): string {
   return dicts[locale]?.[key] || dicts.en[key] || fallback || key

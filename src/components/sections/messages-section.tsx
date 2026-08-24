@@ -10,6 +10,7 @@ import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
   CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send, MessagesSquare,
+  ChevronsDownUp,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -329,6 +330,20 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
             <MessagesSquare className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Threads</span>
           </Button>
+          {threadView && threads && threads.length > 1 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('studenttemp:thread-toggle-all'))
+              }}
+              className="gap-1.5 text-xs"
+              title="Expand/collapse all threads"
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">All</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1386,6 +1401,13 @@ function ThreadGroup({ thread }: { thread: MessageSummary[] }) {
   const updateMessage = useAppStore((s) => s.updateMessage)
   const removeMessage = useAppStore((s) => s.removeMessage)
   const queryClient = useQueryClient()
+
+  // Listen for expand/collapse all events
+  useEffect(() => {
+    const onToggleAll = () => setExpanded(prev => !prev)
+    window.addEventListener('studenttemp:thread-toggle-all', onToggleAll)
+    return () => window.removeEventListener('studenttemp:thread-toggle-all', onToggleAll)
+  }, [])
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
