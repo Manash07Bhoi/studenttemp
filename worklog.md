@@ -684,3 +684,67 @@ Unresolved / next-phase recommendations:
 5. Real ClamAV integration for attachment scanning (marked with `// no ClamAV in dev`)
 6. Drag-to-reorder for My Addresses tray
 7. Could add more email template variety by testing with real external SMTP senders (Gmail, Outlook, etc.)
+
+---
+Task ID: CRON-REVIEW-2
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, then implement i18n (English/Hindi), Web Push notification prompt, and polish.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, all sections, analytics, command palette, keyboard shortcuts all verified working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser at mobile (390x844) and desktop (1280x800) viewports
+- VLM mobile assessment: 8/10 — touch targets compliant, no overflow, clean layout
+- Tested real SMTP end-to-end: generated inbox → sent real email → real-time delivery → reader ✓
+
+**New features implemented:**
+
+1. **i18n system (English + Hindi) — PRD §3.2**
+   - Created `src/lib/i18n.ts` with full English + Hindi dictionaries (~180 keys covering nav, inbox, messages, settings, about, footer)
+   - Created `src/hooks/use-i18n.ts` returning `{ t, locale, setLocale, locales, dir }`
+   - Added `locale` + `setLocale` + `pushPromptDismissed` state to Zustand store (`src/lib/store.ts`)
+   - Locale persisted to localStorage (`studenttemp_locale`), hydrated client-side to avoid SSR mismatch
+   - Sets `<html lang>` attribute dynamically for accessibility
+   - Added `LanguageSwitcher` component to Settings (flag emojis 🇬🇧/🇮🇳 + native labels + active state with check icon)
+   - Wired `t()` into: app-shell nav items (Inbox/Messages/Addresses/Compose/Analytics/Settings/About), settings section (title, card titles, descriptions), inbox section (hero text, empty states, "How it works", "Safety & privacy")
+   - Structure supports adding more locales (Odia, Telugu, Tamil, Bengali, Marathi) trivially — just add to the dictionary
+   - RTL-ready (dir field in LOCALES, though Hindi is LTR; Arabic would use dir='rtl')
+
+2. **Web Push notification pre-prompt (MOTION-SYSTEM.md §15)**
+   - Created `src/components/push-notification-prompt.tsx` — a slide-up card that appears 12s after the user has an active inbox
+   - Bell icon does a single gentle "ring" wiggle (rotate ±8°, 2 cycles, 400ms) on appearance per spec
+   - Custom pre-prompt respects the user (no cold browser popup) — only fires the real `Notification.requestPermission()` after the user taps "Enable"
+   - On grant, subscribes via real `PushManager.subscribe()` and stores the subscription via `/api/notifications/subscribe`
+   - Dismissable ("Maybe later" / X button), persists dismissal to localStorage
+   - Only shows if: notifications supported, permission is 'default', not previously dismissed
+   - Wired into `app-shell.tsx` as `<PushNotificationPrompt />`
+
+3. **Push notification toggle in Settings**
+   - Added `PushNotificationToggle` component in settings-section
+   - Shows real subscription status, supports subscribe/unsubscribe
+   - Handles 'unsupported' and 'denied' (blocked) permission states with badges
+   - Real VAPID key support via `NEXT_PUBLIC_VAPID_PUBLIC_KEY` env var
+
+4. **Settings page reorganization**
+   - Created new "Appearance & language" card containing: Language switcher, Reduce motion, Compact message list
+   - Moved these out of "Notifications & feedback" card (which now has: Sound on new message, Desktop notifications)
+   - Cleaner information architecture
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- i18n verified: switched to Hindi → nav (इनबॉक्स/संदेश/पते/लिखें/एनालिटिक्स/सेटिंग्स/परिचय), settings (सेटिंग्स/नए इनबॉक्स डिफ़ॉल्ट/सूचनाएं और प्रतिक्रिया/डेटा और गोपनीयता) all render in Hindi ✓
+- VLM rated Hindi interface 9/10 (Devanagari rendering correct, layout consistent, language switcher clear)
+- Web Push prompt verified: appears after 12s with active inbox, bell wiggle animation, Enable/Maybe later buttons ✓
+- Real SMTP flow still working end-to-end ✓
+- Mobile responsiveness confirmed (8/10)
+
+Unresolved / next-phase recommendations:
+1. **Partial i18n**: Some descriptive strings in Settings/Inbox sections still in English. Full translation of every string (including FAQ accordion content, About section body, Compose form labels) would complete the Hindi localization.
+2. **More languages**: Add Odia, Telugu, Tamil, Bengali, Marathi dictionaries (PRD §3.2 specifies 5 regional languages + English).
+3. **RTL support**: If Arabic is added later, ensure all CSS uses logical properties (`margin-inline`, `padding-inline`) not `left/right`.
+4. **Real VAPID key**: Configure `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + server-side VAPID private key for real push delivery (currently the subscription is stored but push delivery requires the key pair).
+5. **Service worker registration**: Need to register a service worker for PushManager to work fully (currently the toggle handles the case where no SW is registered).
+6. **Pull-to-refresh** on message list (MOTION-SYSTEM §3.4) — not yet implemented.
+7. **Long-press context menu** on message cards (MOTION-SYSTEM §17) — not yet implemented.
+8. **Drag-to-reorder** for My Addresses tray (MOTION-SYSTEM §17) — not yet implemented.

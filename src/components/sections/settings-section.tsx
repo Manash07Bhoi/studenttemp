@@ -6,9 +6,12 @@ import { motion } from 'framer-motion'
 import {
   Settings as SettingsIcon, Moon, Sun, Bell, Volume2, Trash2, Download,
   ShieldCheck, Github, Heart, Clock, AtSign, Flame, Palette, Database, AlertTriangle,
+  Globe, Check,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
+import { useI18n } from '@/hooks/use-i18n'
+import { LOCALES } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -21,6 +24,7 @@ import {
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from '@/components/ui/accordion'
+import { cn } from '@/lib/utils'
 
 // Local-only settings (persisted to localStorage — no account needed)
 const LS_KEY = 'studenttemp_settings'
@@ -64,6 +68,7 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
   const inboxes = useAppStore((s) => s.inboxes)
   const setActiveSection = useAppStore((s) => s.setActiveSection)
   const queryClient = useQueryClient()
+  const { t } = useI18n()
 
   const { data: domainsData } = useQuery({ queryKey: ['domains'], queryFn: api.getDomains, staleTime: Infinity })
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: api.getStats, refetchInterval: 30_000 })
@@ -97,18 +102,18 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-xl font-bold flex items-center gap-2">
-          <SettingsIcon className="h-5 w-5 text-emerald-500" /> Settings
+          <SettingsIcon className="h-5 w-5 text-emerald-500" /> {t('settings.title')}
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Preferences are saved locally to your browser. No account required.
+          {t('settings.preferencesSaved')}
         </p>
       </div>
 
       {/* Defaults */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-4 w-4 text-emerald-500" /> New inbox defaults</CardTitle>
-          <CardDescription>Applied when generating a new random inbox.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-4 w-4 text-emerald-500" /> {t('settings.newInboxDefaults')}</CardTitle>
+          <CardDescription>{t('settings.appliedWhenGenerating')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
@@ -145,20 +150,18 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
         </CardContent>
       </Card>
 
-      {/* Notifications */}
+      {/* Appearance & Language */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base"><Bell className="h-4 w-4 text-emerald-500" /> Notifications & feedback</CardTitle>
-          <CardDescription>Control how the app alerts you to new mail.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-base"><Globe className="h-4 w-4 text-emerald-500" /> Appearance & language</CardTitle>
+          <CardDescription>Choose your interface language and theme.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <SettingRow
-            icon={<Volume2 className="h-4 w-4" />}
-            title="Sound on new message"
-            desc="Play a soft chime when mail arrives. Off by default."
-          >
-            <Switch checked={settings.soundEnabled} onCheckedChange={(v) => update({ soundEnabled: v })} />
-          </SettingRow>
+          <div className="space-y-2">
+            <Label>Language / भाषा</Label>
+            <LanguageSwitcher />
+            <p className="text-xs text-muted-foreground">More languages coming soon (Odia, Telugu, Tamil, Bengali, Marathi).</p>
+          </div>
           <SettingRow
             icon={<Palette className="h-4 w-4" />}
             title="Reduce motion"
@@ -176,11 +179,35 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
         </CardContent>
       </Card>
 
+      {/* Notifications */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base"><Bell className="h-4 w-4 text-emerald-500" /> {t('settings.notificationsFeedback')}</CardTitle>
+          <CardDescription>{t('settings.controlHow')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <SettingRow
+            icon={<Volume2 className="h-4 w-4" />}
+            title="Sound on new message"
+            desc="Play a soft chime when mail arrives. Off by default."
+          >
+            <Switch checked={settings.soundEnabled} onCheckedChange={(v) => update({ soundEnabled: v })} />
+          </SettingRow>
+          <SettingRow
+            icon={<Bell className="h-4 w-4" />}
+            title="Desktop notifications"
+            desc="Get a browser notification when new mail arrives."
+          >
+            <PushNotificationToggle />
+          </SettingRow>
+        </CardContent>
+      </Card>
+
       {/* Data & privacy */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base"><Database className="h-4 w-4 text-emerald-500" /> Data & privacy</CardTitle>
-          <CardDescription>Manage your data. We don't track you.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-base"><Database className="h-4 w-4 text-emerald-500" /> {t('settings.dataPrivacy')}</CardTitle>
+          <CardDescription>{t('settings.manageData')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -312,4 +339,125 @@ async function exportData() {
   } catch (e) {
     toast.error('Export failed')
   }
+}
+
+// ---------- Language Switcher ----------
+function LanguageSwitcher() {
+  const { locale, setLocale } = useI18n()
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {LOCALES.map((l) => (
+        <button
+          key={l.code}
+          onClick={() => setLocale(l.code)}
+          className={cn(
+            'flex items-center justify-between rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors text-left',
+            locale === l.code
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border hover:bg-accent'
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-base">{l.code === 'en' ? '🇬🇧' : '🇮🇳'}</span>
+            <span>{l.nativeLabel}</span>
+          </span>
+          {locale === l.code && <Check className="h-4 w-4" />}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ---------- Push Notification Toggle ----------
+function PushNotificationToggle() {
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  )
+  const [subscribed, setSubscribed] = useState(false)
+  const { setPushPromptDismissed } = useAppStore()
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    // Check if we already have a subscription
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    navigator.serviceWorker?.ready?.then(async (reg) => {
+      const sub = await reg.pushManager.getSubscription()
+      setSubscribed(!!sub)
+    }).catch(() => {})
+  }, [])
+
+  if (permission === 'unsupported') {
+    return <Badge variant="outline" className="text-amber-600 border-amber-500/30">Unsupported</Badge>
+  }
+
+  const handleToggle = async () => {
+    if (subscribed) {
+      // Unsubscribe
+      try {
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        if (sub) {
+          await sub.unsubscribe()
+          await api.unsubscribePush(sub.endpoint).catch(() => {})
+        }
+        setSubscribed(false)
+        setPushPromptDismissed(true)
+        toast.success('Notifications disabled')
+      } catch (e) {
+        toast.error('Failed to disable notifications')
+      }
+      return
+    }
+    // Request permission (real PushManager)
+    const perm = await Notification.requestPermission()
+    setPermission(perm)
+    if (perm !== 'granted') {
+      toast.error('Notification permission denied')
+      return
+    }
+    // Subscribe via PushManager (real Web Push)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      // VAPID key — in production this comes from env. For dev we use a placeholder
+      // and the subscription is stored locally. Real push delivery requires a Vapid
+      // public key configured server-side.
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ''
+      const sub = vapidPublicKey
+        ? await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+          })
+        : await reg.pushManager.subscribe({ userVisibleOnly: true })
+      const subJson = sub.toJSON()
+      await api.subscribePush({
+        endpoint: subJson.endpoint || '',
+        keys: { p256dh: subJson.keys?.p256dh || '', auth: subJson.keys?.auth || '' },
+      })
+      setSubscribed(true)
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      toast.success('Notifications enabled', {
+        description: 'You\'ll be notified when new mail arrives.',
+      })
+    } catch (e) {
+      toast.error('Failed to subscribe: ' + (e as Error).message)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Switch checked={subscribed} onCheckedChange={handleToggle} />
+      {permission === 'denied' && (
+        <Badge variant="outline" className="text-red-600 border-red-500/30 text-[10px]">Blocked</Badge>
+      )}
+    </div>
+  )
+}
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  const output = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) output[i] = rawData.charCodeAt(i)
+  return output
 }

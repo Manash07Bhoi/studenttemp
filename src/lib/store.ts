@@ -64,6 +64,14 @@ interface AppState {
   // keyboard-driven message selection (j/k navigation in Messages section)
   selectedMessageId: string | null
   setSelectedMessageId: (id: string | null) => void
+
+  // i18n locale (en | hi)
+  locale: 'en' | 'hi'
+  setLocale: (l: 'en' | 'hi') => void
+
+  // web push notification pre-prompt (dismissed state)
+  pushPromptDismissed: boolean
+  setPushPromptDismissed: (v: boolean) => void
 }
 
 const LS = {
@@ -151,11 +159,32 @@ export const useAppStore = create<AppState>((set) => ({
 
   selectedMessageId: null,
   setSelectedMessageId: (id) => set({ selectedMessageId: id }),
+
+  locale: 'en',
+  setLocale: (l) => {
+    if (typeof window !== 'undefined') localStorage.setItem('studenttemp_locale', l)
+    set({ locale: l })
+  },
+
+  pushPromptDismissed: false,
+  setPushPromptDismissed: (v) => {
+    if (typeof window !== 'undefined') writeLS('studenttemp_push_dismissed', v)
+    set({ pushPromptDismissed: v })
+  },
 }))
 
 // Hydrate persisted UI flags on the client after mount (avoids SSR hydration mismatch).
 if (typeof window !== 'undefined') {
   const appLock = readLS(LS.appLock)
   const onboarding = readLS(LS.onboarding)
-  useAppStore.setState({ appLockEnabled: appLock, hasSeenOnboarding: onboarding })
+  const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi') || 'en'
+  const pushDismissed = readLS('studenttemp_push_dismissed')
+  useAppStore.setState({
+    appLockEnabled: appLock,
+    hasSeenOnboarding: onboarding,
+    locale,
+    pushPromptDismissed: pushDismissed,
+  })
+  // Set <html lang> and dir attributes for accessibility + RTL
+  document.documentElement.lang = locale
 }

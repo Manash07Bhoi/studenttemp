@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/hooks/use-i18n'
 
 export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: string) => void }) {
   const activeInboxId = useAppStore((s) => s.activeInboxId)
@@ -38,6 +39,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
   const setActiveSection = useAppStore((s) => s.setActiveSection)
   const setMessages = useAppStore((s) => s.setMessages)
   const queryClient = useQueryClient()
+  const { t } = useI18n()
 
   const activeInbox = inboxes.find((i) => i.id === activeInboxId) || null
   const [copied, setCopied] = useState(false)
@@ -139,12 +141,12 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                Your temporary inbox
+                {t('inbox.yourTemporaryInbox')}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {activeInbox
                   ? 'Share this address. Mail arrives here in real time.'
-                  : 'Generate a disposable address — no sign-up, no tracking.'}
+                  : t('inbox.generateDisposable')}
               </p>
             </div>
             {activeInbox && (
@@ -243,7 +245,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
 
                 <div className="mt-4 rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2.5 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
                   <Info className="h-3.5 w-3.5 shrink-0" />
-                  <span>Tap the email or the Copy button to copy. New messages appear on the Messages tab.</span>
+                  <span>{t('inbox.tapToCopy')}</span>
                 </div>
               </motion.div>
             ) : (
@@ -257,7 +259,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                 <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500">
                   <Mail className="h-7 w-7" />
                 </div>
-                <h3 className="text-lg font-semibold">No active inbox</h3>
+                <h3 className="text-lg font-semibold">{t('inbox.noActiveInbox')}</h3>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
                   Generate a fresh disposable email address to start receiving mail in seconds.
                 </p>
@@ -289,7 +291,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
       <section className="grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-border/60 bg-card p-5">
           <h3 className="flex items-center gap-2 font-semibold">
-            <Info className="h-4 w-4 text-emerald-500" /> How it works
+            <Info className="h-4 w-4 text-emerald-500" />{t('inbox.howItWorks')}
           </h3>
           <ol className="mt-3 space-y-2.5 text-sm text-muted-foreground">
             <li className="flex gap-3">
@@ -313,7 +315,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
 
         <div className="rounded-xl border border-border/60 bg-card p-5">
           <h3 className="flex items-center gap-2 font-semibold">
-            <ShieldCheck className="h-4 w-4 text-emerald-500" /> Safety & privacy
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />{t('inbox.safetyPrivacy')}
           </h3>
           <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
             <li className="flex gap-2"><Check className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" /> No sign-up, no personal data collected</li>

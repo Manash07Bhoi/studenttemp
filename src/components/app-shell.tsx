@@ -10,6 +10,7 @@ import { useAppStore, type SectionId } from '@/lib/store'
 import { useSocket } from '@/hooks/use-socket'
 import { useBroadcastChannel } from '@/hooks/use-broadcast'
 import { useSound } from '@/hooks/use-settings'
+import { useI18n } from '@/hooks/use-i18n'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { toast } from 'sonner'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -27,16 +28,17 @@ import { AboutSection } from '@/components/sections/about-section'
 import { LegalSection } from '@/components/sections/legal-section'
 import { AppLockSection, LockScreen, useAutoLock } from '@/components/sections/applock-section'
 import { OnboardingOverlay } from '@/components/sections/onboarding-overlay'
+import { PushNotificationPrompt } from '@/components/push-notification-prompt'
 import { AnalyticsSection } from '@/components/sections/analytics-section'
 
-const NAV_ITEMS: { id: SectionId; label: string; icon: typeof InboxIcon }[] = [
-  { id: 'inbox', label: 'Inbox', icon: Mail },
-  { id: 'messages', label: 'Messages', icon: Activity },
-  { id: 'addresses', label: 'Addresses', icon: AtSign },
-  { id: 'compose', label: 'Compose', icon: Plus },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'settings', label: 'Settings', icon: SettingsIcon },
-  { id: 'about', label: 'About', icon: Info },
+const NAV_ITEMS: { id: SectionId; labelKey: string; icon: typeof InboxIcon }[] = [
+  { id: 'inbox', labelKey: 'nav.inbox', icon: Mail },
+  { id: 'messages', labelKey: 'nav.messages', icon: Activity },
+  { id: 'addresses', labelKey: 'nav.addresses', icon: AtSign },
+  { id: 'compose', labelKey: 'nav.compose', icon: Plus },
+  { id: 'analytics', labelKey: 'nav.analytics', icon: BarChart3 },
+  { id: 'settings', labelKey: 'nav.settings', icon: SettingsIcon },
+  { id: 'about', labelKey: 'nav.about', icon: Info },
 ]
 
 function InboxIcon() { return <Mail className="h-4 w-4" /> }
@@ -64,6 +66,7 @@ export function AppShell() {
   const appLockEnabled = useAppStore((s) => s.appLockEnabled)
   const queryClient = useQueryClient()
   const sound = useSound()
+  const { t } = useI18n()
 
   // App-wide auto-lock: listens for page-visibility changes (tab backgrounded,
   // app minimized, screen off) and engages the lock screen when the configured
@@ -270,7 +273,7 @@ export function AppShell() {
                 >
                   <span className="flex items-center gap-2">
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    {t(item.labelKey)}
                     {item.id === 'messages' && unreadCount > 0 && (
                       <span className="grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
                         {unreadCount}
@@ -348,7 +351,7 @@ export function AppShell() {
                 }`}
               >
                 <item.icon className="h-3.5 w-3.5" />
-                {item.label}
+                {t(item.labelKey)}
                 {item.id === 'messages' && unreadCount > 0 && (
                   <span className="grid h-4 min-w-4 place-items-center rounded-full bg-background text-primary text-[10px] font-bold px-1">
                     {unreadCount}
@@ -393,6 +396,9 @@ export function AppShell() {
       {/* Command palette (⌘K) + keyboard shortcuts help (?) — driven by store state */}
       <CommandPalette />
       <KeyboardShortcutsDialog />
+
+      {/* Web Push notification pre-prompt (MOTION-SYSTEM.md §15) */}
+      <PushNotificationPrompt />
     </div>
   )
 }
