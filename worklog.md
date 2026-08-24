@@ -828,3 +828,77 @@ Unresolved / next-phase recommendations:
 6. **Real ClamAV integration** for attachment scanning (marked with `// no ClamAV in dev`)
 7. **Message forwarding** (forward to another temp inbox) — could extend the reply API
 8. **Inbox-wide search** across all inboxes (currently search is per-active-inbox)
+
+---
+Task ID: CRON-REVIEW-4
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, implement long-press context menu, message forwarding, and polish.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, i18n En/Hindi, analytics, command palette, keyboard shortcuts, Web Push prompt, app lock, swipe gestures, service worker, reply/export, pull-to-refresh all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- Sent real test email, verified it appears in real-time
+
+**New features implemented:**
+
+1. **Long-press context menu on message cards (MOTION-SYSTEM.md §17)**
+   - Created `src/hooks/use-long-press.ts` — real long-press detection:
+     - Fires after 500ms of continuous press without significant movement (>10px cancels)
+     - Provides `isLongPressing` state for scale-down feedback (0.98 per spec)
+     - Haptic tick (Vibration API: 12ms) on long-press registration
+     - Works for both touch and mouse pointers
+     - Returns `didLongPress` ref to suppress the click that follows
+   - Wired into MessageListItem — merged pointer handlers with existing drag detection
+   - On long-press: opens a centered context menu (modal) with:
+     - Message subject + sender header
+     - Mark as read/unread (with Mail/MailOpen icon swap)
+     - Star/Unstar (with amber fill when starred)
+     - Forward (if onForward provided)
+     - Export as .eml
+     - Delete (red, with divider above)
+     - Report (red)
+   - Context menu uses Framer Motion spring scale-in animation
+   - Backdrop dismisses on click
+   - Card scales to 0.98 during long-press (per spec)
+
+2. **Message Forwarding (real SMTP)**
+   - Created `/api/messages/[id]/forward` POST route — forwards a copy of a message via real SMTP
+     - Builds Fwd: subject (if not already prefixed)
+     - Includes original message headers + body (text + HTML)
+     - Optional note prepended before the forwarded content
+     - Rate-limited (5/hour/IP), audit-logged
+     - Real nodemailer SMTP delivery
+   - Created `ForwardDialog` component — modal with:
+     - To: email input (real validation with regex)
+     - Note: optional textarea
+     - Loading state while sending
+     - Success toast with delivery confirmation
+     - Error toast on failure
+   - Added "Forward message" to reader's More dropdown (dispatches custom event)
+   - Added Forward to long-press context menu
+   - Wired `forwardingMsgId` state + `studenttemp:forward-message` custom event listener in MessagesSection
+
+3. **Styling polish**
+   - Long-press context menu: centered modal with backdrop blur, spring animation, role="menu" + role="menuitem" for accessibility
+   - Forward dialog: emerald Send icon, clear labels, validation feedback
+   - Message list items: scale-down (0.98) during long-press for tactile feedback
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- Long-press context menu verified: appears after 500ms hold with scale-down feedback, haptic tick, full action menu
+- Forward dialog verified: opens from reader More menu, validates email, sends via real SMTP API
+- VLM rated Forward dialog 8/10 (clean, intuitive, clear labels)
+- Real SMTP flow still working end-to-end
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Drag-to-reorder** for My Addresses tray (MOTION-SYSTEM §17) — not yet implemented
+2. **Real VAPID key pair** — configure for real push delivery (SW + PushManager wired, only key needed)
+3. **More i18n languages** — Odia, Telugu, Tamil, Bengali, Marathi (PRD §3.2)
+4. **Full Hindi translation** — some descriptive strings + FAQ still in English
+5. **Real ClamAV integration** for attachment scanning
+6. **Inbox-wide global search** across all inboxes (currently per-active-inbox)
+7. **Message threading** — group replies in a thread view
+8. **Keyboard shortcut for forward** (e.g., 'f' key) — could add to use-keyboard-shortcuts.ts

@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { PullToRefresh } from '@/components/pull-to-refresh'
+import { useLongPress } from '@/hooks/use-long-press'
 
 const CATEGORY_META: Record<string, { label: string; color: string }> = {
   otp: { label: 'OTP', color: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20' },
@@ -81,6 +82,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const activeInbox = inboxes.find((i) => i.id === activeInboxId)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+  const [forwardingMsgId, setForwardingMsgId] = useState<string | null>(null)
 
   // Search input ref — focused by the `/` keyboard shortcut.
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -117,11 +119,17 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
       searchInputRef.current?.focus()
       searchInputRef.current?.select()
     }
+    const onForward = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string }>).detail
+      if (detail?.id) setForwardingMsgId(detail.id)
+    }
     window.addEventListener('studenttemp:refresh-messages', onRefresh)
     window.addEventListener('studenttemp:focus-search', onFocusSearch)
+    window.addEventListener('studenttemp:forward-message', onForward)
     return () => {
       window.removeEventListener('studenttemp:refresh-messages', onRefresh)
       window.removeEventListener('studenttemp:focus-search', onFocusSearch)
+      window.removeEventListener('studenttemp:forward-message', onForward)
     }
   }, [refetch])
 
@@ -363,6 +371,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                       onToggleStar={() => updateMutation.mutate({ id: msg.id, data: { isStarred: !msg.isStarred } })}
                       onDelete={() => handleDeleteWithUndo(msg)}
                       onReport={(reason, category) => reportMutation.mutate({ id: msg.id, reason, category })}
+                      onForward={() => setForwardingMsgId(msg.id)}
                     />
                   ))}
                 </AnimatePresence>
@@ -404,6 +413,12 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Forward dialog */}
+      <ForwardDialog
+        messageId={forwardingMsgId}
+        onOpenChange={(v) => { if (!v) setForwardingMsgId(null) }}
+      />
     </div>
   )
 }
@@ -422,7 +437,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
 //   • prefers-reduced-motion → drag disabled entirely; hover buttons still work.
 //   • tap (no drag) → onOpen(). drag → suppress click.
 function MessageListItem({
-  msg, active, selected, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport,
+  msg, active, selected, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport, onForward,
 }: {
   msg: MessageSummary
   active: boolean
@@ -433,6 +448,7 @@ function MessageListItem({
   onToggleStar: () => void
   onDelete: () => void
   onReport: (reason: string, category: string) => void
+  onForward?: () => void
 }) {
   const cat = CATEGORY_META[msg.category] || CATEGORY_META.general
   const hasAuthIssue = msg.spf !== 'pass' || msg.dkim !== 'pass' || msg.dmarc !== 'pass'
@@ -440,6 +456,10 @@ function MessageListItem({
   const reduceMotion = useReducedMotion()
   const dragX = useMotionValue(0)
   const controls = useAnimationControls()
+
+  // Long-press context menu state
+  const [showContextMenu, setShowContextMenu] = useState(false)
+  const longPress = useLongPress({ onLongPress: () => setShowContextMenu(true) })
 
   // Track whether a real drag happened so we can suppress the click that
   // follows. Framer Motion fires `onClick` even after a drag ends if the
@@ -500,6 +520,10 @@ function MessageListItem({
 
   const handleClick = () => {
     if (draggedRef.current) return
+    // Suppress click after a long-press (the context menu opened)
+    if (longPress.didLongPress.current) {
+      return
+    }
     onOpen()
   }
 
@@ -584,10 +608,16 @@ function MessageListItem({
       >
         <button
           onClick={handleClick}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
+          onPointerDown={(e) => { handlePointerDown(e); longPress.bind.onPointerDown(e) }}
+          onPointerMove={longPress.bind.onPointerMove}
+          onPointerUp={(e) => { handlePointerUp(e); longPress.bind.onPointerUp(e) }}
+          onPointerLeave={longPress.bind.onPointerLeave}
+          onPointerCancel={longPress.bind.onPointerCancel}
+          style={longPress.isLongPressing ? { transform: 'scale(0.98)', transition: 'transform 0.15s ease' } : undefined}
           className="w-full text-left p-3 flex gap-3 min-w-0"
           aria-label={`Open message: ${msg.subject} from ${msg.fromName}`}
+          aria-haspopup={showContextMenu ? 'menu' : undefined}
+          aria-expanded={showContextMenu}
         >
           <div className="relative shrink-0">
             <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
@@ -662,6 +692,84 @@ function MessageListItem({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        {/* Long-press context menu (MOTION-SYSTEM.md §17) */}
+        <AnimatePresence>
+          {showContextMenu && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setShowContextMenu(false)}
+                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: -8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: -8 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[calc(100%-2rem)] max-w-xs rounded-2xl border border-border/60 bg-card p-1.5 shadow-2xl"
+                role="menu"
+                aria-label="Message actions"
+              >
+                <div className="px-3 py-2 border-b border-border/40 mb-1">
+                  <p className="text-xs font-medium truncate">{msg.subject}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{msg.fromName}</p>
+                </div>
+                <button
+                  onClick={() => { onToggleRead(); setShowContextMenu(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+                  role="menuitem"
+                >
+                  {msg.isRead ? <Mail className="h-4 w-4 text-muted-foreground" /> : <MailOpen className="h-4 w-4 text-emerald-500" />}
+                  {msg.isRead ? 'Mark as unread' : 'Mark as read'}
+                </button>
+                <button
+                  onClick={() => { onToggleStar(); setShowContextMenu(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+                  role="menuitem"
+                >
+                  <Star className={cn('h-4 w-4', msg.isStarred ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground')} />
+                  {msg.isStarred ? 'Unstar' : 'Star'}
+                </button>
+                {onForward && (
+                  <button
+                    onClick={() => { onForward(); setShowContextMenu(false) }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+                    role="menuitem"
+                  >
+                    <Send className="h-4 w-4 text-emerald-500" />
+                    Forward
+                  </button>
+                )}
+                <button
+                  onClick={() => { window.open(`/api/messages/${msg.id}/export`, '_blank'); setShowContextMenu(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+                  role="menuitem"
+                >
+                  <Download className="h-4 w-4 text-muted-foreground" />
+                  Export as .eml
+                </button>
+                <div className="h-px bg-border/40 my-1" />
+                <button
+                  onClick={() => { onDelete(); setShowContextMenu(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-red-500/10 text-sm text-red-600 text-left"
+                  role="menuitem"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+                <button
+                  onClick={() => { onReport('Reported via context menu', 'other'); setShowContextMenu(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-red-500/10 text-sm text-red-600 text-left"
+                  role="menuitem"
+                >
+                  <Flag className="h-4 w-4" />
+                  Report
+                </button>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.li>
   )
@@ -814,6 +922,15 @@ function MessageReader({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setShowReply(true)} className="gap-2">
                 <Reply className="h-3.5 w-3.5" /> Reply to sender
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  // Dispatch a custom event the parent MessagesSection listens for
+                  window.dispatchEvent(new CustomEvent('studenttemp:forward-message', { detail: { id: messageSummary.id } }))
+                }}
+                className="gap-2"
+              >
+                <Send className="h-3.5 w-3.5" /> Forward message
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
@@ -1107,6 +1224,93 @@ function ReplyDialog({
           >
             {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Send reply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------- Forward Dialog ----------
+function ForwardDialog({
+  messageId, onOpenChange,
+}: {
+  messageId: string | null
+  onOpenChange: (v: boolean) => void
+}) {
+  const [to, setTo] = useState('')
+  const [note, setNote] = useState('')
+  const mutation = useMutation({
+    mutationFn: (vars: { id: string; to: string; note: string }) =>
+      fetch(`/api/messages/${vars.id}/forward`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: vars.to, note: vars.note }),
+      }).then(async (r) => {
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'Forward failed')
+        return data
+      }),
+    onSuccess: (data) => {
+      toast.success('Message forwarded', {
+        description: `Delivered to ${data.to}`,
+        duration: 3000,
+      })
+      setTo('')
+      setNote('')
+      onOpenChange(false)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const validEmail = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(to.trim())
+
+  return (
+    <Dialog open={!!messageId} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Send className="h-4 w-4 text-emerald-500" /> Forward message</DialogTitle>
+          <DialogDescription>
+            Forward a copy of this message to another email address via real SMTP.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">To</label>
+            <Input
+              type="email"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="recipient@example.com"
+              className={cn(to && !validEmail && 'border-red-500 focus-visible:ring-red-500')}
+              autoFocus
+            />
+            {to && !validEmail && (
+              <p className="text-xs text-red-500">Enter a valid email address</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Note (optional)</label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Add a note before the forwarded message…"
+              className="w-full min-h-[80px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            The original message (with Fwd: prefix) will be sent from your inbox. Rate-limited to 5 forwards/hour.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => messageId && mutation.mutate({ id: messageId, to: to.trim(), note })}
+            disabled={!validEmail || mutation.isPending}
+            className="gap-2"
+          >
+            {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Forward
           </Button>
         </DialogFooter>
       </DialogContent>
