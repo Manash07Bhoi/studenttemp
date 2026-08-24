@@ -55,6 +55,7 @@ export function useKeyboardShortcuts() {
   const setSelectedMessageId = useAppStore((s) => s.setSelectedMessageId)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const setShortcutsDialogOpen = useAppStore((s) => s.setShortcutsDialogOpen)
+  const setGlobalSearchOpen = useAppStore((s) => s.setGlobalSearchOpen)
   const isLocked = useAppStore((s) => s.isLocked)
 
   useEffect(() => {
@@ -214,6 +215,20 @@ export function useKeyboardShortcuts() {
           setShortcutsDialogOpen(true)
           return
         }
+        case 'f': {
+          // Forward the currently-open message (if any)
+          if (activeSection === 'messages' && openMessageId) {
+            e.preventDefault()
+            window.dispatchEvent(new CustomEvent('studenttemp:forward-message', { detail: { id: openMessageId } }))
+          }
+          return
+        }
+        case 'S': {
+          // Shift+S → global search across all inboxes
+          e.preventDefault()
+          setGlobalSearchOpen(true)
+          return
+        }
         default:
           return
       }
@@ -236,6 +251,7 @@ export function useKeyboardShortcuts() {
     setSelectedMessageId,
     setCommandPaletteOpen,
     setShortcutsDialogOpen,
+    setGlobalSearchOpen,
     isLocked,
   ])
 }

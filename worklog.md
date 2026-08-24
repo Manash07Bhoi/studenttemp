@@ -902,3 +902,77 @@ Unresolved / next-phase recommendations:
 6. **Inbox-wide global search** across all inboxes (currently per-active-inbox)
 7. **Message threading** — group replies in a thread view
 8. **Keyboard shortcut for forward** (e.g., 'f' key) — could add to use-keyboard-shortcuts.ts
+
+---
+Task ID: CRON-REVIEW-5
+Agent: main (Z.ai Code) — cron-triggered review
+Task: QA the project, implement global search, drag-to-reorder addresses, keyboard shortcuts.
+
+Work Log:
+- Read worklog.md to understand current state (real SMTP, i18n, analytics, command palette, keyboard shortcuts, Web Push, app lock, swipe gestures, service worker, reply/export/forward, pull-to-refresh, long-press context menu all working)
+- Verified all services running clean (Next.js 3000, SMTP 2525, Socket.IO 3003, gateway 81)
+- QA tested via agent-browser: app loads clean, no console errors, real SMTP delivery verified
+- Sent real test emails, verified real-time delivery
+
+**New features implemented:**
+
+1. **Inbox-wide Global Search**
+   - Created `/api/search` GET route — searches across ALL session inboxes (active + expired)
+   - Real SQLite LIKE queries on subject, senderAddress, senderDisplayName, previewText, bodyText
+   - Returns up to 50 results with inbox email + status for each match
+   - Created inline `GlobalSearchInline` component in app-shell (rendered as a centered modal dialog)
+   - Features:
+     - Search input with autofocus, clear button
+     - Real-time debounced search (2+ chars triggers query)
+     - Results show: sender avatar (initial), from name, subject, preview, inbox email badge, expired indicator
+     - Click result → switches to owning inbox + opens message in reader
+     - Loading state ("Searching…"), empty state, no-results state
+     - Backdrop dismiss, Esc to close
+     - Spring scale-in animation
+   - Added "Search all inboxes" button to header (Search icon)
+   - Added "Search all inboxes" to command palette (Shift+/ shortcut)
+   - Added `Shift+S` keyboard shortcut for global search
+   - Verified: searched "Invoice" → found 1 result from real SMTP email ✓
+
+2. **Drag-to-Reorder for My Addresses Tray (MOTION-SYSTEM.md §17)**
+   - Added `@dnd-kit/core` + `@dnd-kit/sortable` integration to addresses-section
+   - Created `SortableInboxCard` component with:
+     - Drag handle (GripVertical icon) on left side
+     - `useSortable` hook for drag state + transform
+     - Visual feedback during drag: shadow-2xl, ring-2, opacity 0.8, z-50
+     - Touch + keyboard sensor support (activation distance 8px)
+   - Reorder persists to localStorage (`studenttemp_inbox_order`)
+   - `arrayMove` on drag end updates store + localStorage
+   - Toast confirmation on reorder ("Inbox order updated")
+   - "Drag the handle to reorder" hint above grid
+   - All existing card functionality preserved (copy, extend, open, delete)
+
+3. **Keyboard shortcut for Forward ('f' key)**
+   - Added `case 'f'` to `use-keyboard-shortcuts.ts`
+   - When on Messages section with a message open, pressing 'f' opens the Forward dialog
+   - Dispatches `studenttemp:forward-message` custom event with the open message ID
+   - Added `setGlobalSearchOpen` to the keyboard shortcuts dependency array
+
+**Bug fixed:**
+- Fixed `React.ReactNode` type reference in the original `GlobalSearchDialog` component that caused a parsing error preventing client-side rendering. Resolved by inlining the dialog directly in app-shell.tsx as `GlobalSearchInline` and using `Record<string, unknown>` typing for search results.
+- Fixed stale Turbopack cache by clearing `.next` + `node_modules/.cache` directories.
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- Global search verified: searched "Invoice" → found 1 real result from real SMTP email, result shows sender + subject + inbox email ✓
+- Drag-to-reorder verified: GripVertical handle visible, DndContext + SortableContext wired, localStorage persistence ✓
+- Keyboard shortcut 'f' for forward added
+- Keyboard shortcut Shift+S for global search added
+- Real SMTP flow still working end-to-end
+- No console errors
+
+Unresolved / next-phase recommendations:
+1. **Real VAPID key pair** — configure for real push delivery (SW + PushManager wired, only key needed)
+2. **More i18n languages** — Odia, Telugu, Tamil, Bengali, Marathi (PRD §3.2)
+3. **Full Hindi translation** — some descriptive strings + FAQ still in English
+4. **Real ClamAV integration** for attachment scanning
+5. **Message threading** — group replies in a thread view
+6. **Inbox categories/folders** — organize inboxes by category
+7. **Search result highlighting** — highlight matched text in search results (currently plain)
+8. **Drag-to-reorder on mobile** — test touch gestures for DndContext on mobile viewport

@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useCallback } from 'react'
+import { useEffect, useMemo, useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, Mail, AtSign, Settings as SettingsIcon, Info, Shield, Activity, Zap, Plus, Lock, Command as CommandIcon, BarChart3 } from 'lucide-react'
+import { Menu, Mail, AtSign, Settings as SettingsIcon, Info, Shield, Activity, Zap, Plus, Lock, Command as CommandIcon, BarChart3, Search } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import type { RealtimeMessage } from '@/lib/types'
 import { useAppStore, type SectionId } from '@/lib/store'
@@ -83,6 +83,7 @@ export function AppShell() {
   // Command palette + shortcuts help are driven by store state so both the
   // hook and the header ⌘K button can open them.
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
+  const setGlobalSearchOpen = useAppStore((s) => s.setGlobalSearchOpen)
 
   const { data: inboxesData } = useQuery({
     queryKey: ['inboxes'],
@@ -326,6 +327,14 @@ export function AppShell() {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            <button
+              onClick={() => setGlobalSearchOpen(true)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+              aria-label="Search all inboxes"
+              title="Search all inboxes"
+            >
+              <Search className="h-4 w-4" />
+            </button>
             <ThemeToggle />
             {appLockEnabled && (
               <button
@@ -401,6 +410,116 @@ export function AppShell() {
 
       {/* Web Push notification pre-prompt (MOTION-SYSTEM.md §15) */}
       <PushNotificationPrompt />
+
+      {/* Global search dialog — searches across all inboxes */}
+      <GlobalSearchInline />
     </div>
+  )
+}
+
+// ---------- Inline Global Search Dialog ----------
+function GlobalSearchInline() {
+  const open = useAppStore((s) => s.globalSearchOpen)
+  const setOpen = useAppStore((s) => s.setGlobalSearchOpen)
+  const setActiveInboxId = useAppStore((s) => s.setActiveInboxId)
+  const setActiveSection = useAppStore((s) => s.setActiveSection)
+  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+  const [query, setQuery] = useState('')
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['global-search', query],
+    queryFn: async () => {
+      if (!query || query.length < 2) return { results: [] as Array<Record<string, unknown>>, total: 0 }
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
+      if (!res.ok) throw new Error('Search failed')
+      return res.json() as Promise<{ results: Array<Record<string, unknown>>; total: number }>
+    },
+    enabled: query.length >= 2,
+    staleTime: 10_000,
+  })
+
+  const handleSelect = useCallback((result: Record<string, unknown>) => {
+    setActiveInboxId(result.inboxId as string)
+    setActiveSection('messages')
+    setTimeout(() => setOpenMessageId(result.id as string), 100)
+    setOpen(false)
+  }, [setActiveInboxId, setActiveSection, setOpenMessageId, setOpen])
+
+  const results = data?.results || []
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4 bg-black/50 backdrop-blur-sm"
+          onClick={() => setOpen(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: -12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -12 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+            className="w-full max-w-2xl rounded-2xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog" aria-label="Global search"
+          >
+            <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
+              <Search className="h-5 w-5 text-muted-foreground shrink-0" />
+              <input
+                type="text" value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search across all your inboxes…"
+                className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
+                autoFocus autoComplete="off" spellCheck={false}
+              />
+              {query && (
+                <button onClick={() => setQuery('')} className="text-muted-foreground hover:text-foreground" aria-label="Clear">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              )}
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+              {query.length < 2 ? (
+                <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+                  Type at least 2 characters to search across all your inboxes.
+                </div>
+              ) : isFetching ? (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">Searching…</div>
+              ) : results.length === 0 ? (
+                <div className="px-4 py-12 text-center text-sm text-muted-foreground">No messages found for "{query}"</div>
+              ) : (
+                <div className="py-2">
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {results.length} {results.length === 1 ? 'result' : 'results'}
+                  </div>
+                  {results.map((result) => (
+                    <button
+                      key={result.id as string}
+                      onClick={() => handleSelect(result)}
+                      className="w-full text-left px-4 py-3 hover:bg-accent/50 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-xs">
+                          {(result.fromName as string)?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium truncate">{result.fromName as string}</span>
+                            <span className="text-[11px] text-muted-foreground shrink-0">{result.inboxEmail as string}</span>
+                          </div>
+                          <p className="mt-0.5 text-sm truncate font-semibold">{result.subject as string}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground truncate">{result.previewText as string}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

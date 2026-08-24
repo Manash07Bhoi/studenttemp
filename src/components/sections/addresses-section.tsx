@@ -3,9 +3,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  AtSign, Plus, Trash2, Mail, Sparkles, Zap, Flame, Copy, Check, ChevronRight, Clock,
+  AtSign, Plus, Trash2, Mail, Sparkles, Zap, Flame, Copy, Check, ChevronRight, Clock, GripVertical,
 } from 'lucide-react'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable,
+  verticalListSortingStrategy, horizontalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import type { Inbox } from '@/lib/types'
@@ -24,6 +33,17 @@ import { Label } from '@/components/ui/label'
 import { CountdownTimer } from '@/components/countdown-timer'
 import { cn } from '@/lib/utils'
 
+const REORDER_LS_KEY = 'studenttemp_inbox_order'
+
+function loadOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try { return JSON.parse(localStorage.getItem(REORDER_LS_KEY) || '[]') } catch { return [] }
+}
+function saveOrder(ids: string[]) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(REORDER_LS_KEY, JSON.stringify(ids))
+}
+
 export function AddressesSection({ triggerGenerate: _triggerGenerate }: { triggerGenerate: (email: string) => void }) {
   const inboxes = useAppStore((s) => s.inboxes)
   const activeInboxId = useAppStore((s) => s.activeInboxId)
@@ -31,10 +51,46 @@ export function AddressesSection({ triggerGenerate: _triggerGenerate }: { trigge
   const setActiveSection = useAppStore((s) => s.setActiveSection)
   const removeInbox = useAppStore((s) => s.removeInbox)
   const updateInbox = useAppStore((s) => s.updateInbox)
+  const setInboxes = useAppStore((s) => s.setInboxes)
   const setMessages = useAppStore((s) => s.setMessages)
   const queryClient = useQueryClient()
   const [showNew, setShowNew] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [order, setOrder] = useState<string[]>([])
+
+  // Load saved order on mount
+  useEffect(() => { setOrder(loadOrder()) }, [])
+
+  // Sort inboxes by saved order (any not in the order go last, preserving their natural order)
+  const sortedInboxes = useMemo(() => {
+    if (order.length === 0) return inboxes
+    const orderMap = new Map(order.map((id, i) => [id, i]))
+    return [...inboxes].sort((a, b) => {
+      const ai = orderMap.get(a.id) ?? 9999
+      const bi = orderMap.get(b.id) ?? 9999
+      return ai - bi
+    })
+  }, [inboxes, order])
+
+  // Drag sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = sortedInboxes.findIndex((i) => i.id === active.id)
+    const newIndex = sortedInboxes.findIndex((i) => i.id === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const newOrder = arrayMove(sortedInboxes, oldIndex, newIndex)
+    const newIds = newOrder.map((i) => i.id)
+    setOrder(newIds)
+    saveOrder(newIds)
+    setInboxes(newOrder)
+    toast.success('Inbox order updated', { duration: 1200 })
+  }, [sortedInboxes, setInboxes])
 
   const { data: domainsData } = useQuery({ queryKey: ['domains'], queryFn: api.getDomains, staleTime: Infinity })
 
@@ -118,79 +174,38 @@ export function AddressesSection({ triggerGenerate: _triggerGenerate }: { trigge
           </Button>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <AnimatePresence>
-            {inboxes.map((inbox) => (
-              <motion.div
-                key={inbox.id}
-                layout
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                className={cn(
-                  'relative rounded-xl border bg-card p-4 transition-colors cursor-pointer',
-                  activeInboxId === inbox.id ? 'border-primary border-2 shadow-md shadow-emerald-500/10' : 'border-border/60 hover:border-border'
-                )}
-                onClick={() => handleSwitch(inbox.id)}
-              >
-                {activeInboxId === inbox.id && (
-                  <span className="absolute top-3 right-3">
-                    <Badge className="bg-primary text-primary-foreground text-[10px] gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground animate-pulse" /> Active
-                    </Badge>
-                  </span>
-                )}
-
-                <div className="flex items-start gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 text-white">
-                    <Mail className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">{inbox.isCustom ? <Sparkles className="h-3 w-3" /> : <Zap className="h-3 w-3" />}</span>
-                      {inbox.burnOnRead && <Flame className="h-3 w-3 text-orange-500" />}
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{inbox.isCustom ? 'Custom' : 'Random'}</span>
-                    </div>
-                    <p className="mt-0.5 font-mono text-sm font-semibold break-all leading-tight">{inbox.email}</p>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <CountdownTimer expiresAt={inbox.expiresAt} variant="compact" onExpire={() => removeInbox(inbox.id)} />
-                  <span className="text-xs text-muted-foreground">
-                    {inbox._count?.messages || 0} {(inbox._count?.messages || 0) === 1 ? 'message' : 'messages'}
-                  </span>
-                </div>
-
-                {/* Action row */}
-                <div className="mt-3 flex items-center gap-1.5 border-t border-border/40 pt-3" onClick={(e) => e.stopPropagation()}>
-                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => copyEmail(inbox)}>
-                    {copiedId === inbox.id ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-                    {copiedId === inbox.id ? 'Copied' : 'Copy'}
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => extendMutation.mutate({ id: inbox.id, mins: 10 })}>
-                    <Clock className="h-3 w-3" /> +10m
-                  </Button>
-                  <div className="flex-1" />
-                  <Button
-                    size="sm" variant="ghost" className="h-7 gap-1 text-xs"
-                    onClick={() => handleSwitch(inbox.id)}
-                  >
-                    Open <ChevronRight className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    size="sm" variant="ghost"
-                    className="h-7 w-7 p-0 text-red-500 hover:bg-red-500/10"
-                    onClick={() => { if (confirm('Delete this inbox?')) deleteMutation.mutate(inbox.id) }}
-                    title="Delete"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+        <div className="space-y-3">
+          {/* Drag-to-reorder hint */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <GripVertical className="h-3.5 w-3.5" />
+            <span>Drag the handle to reorder your inboxes</span>
+          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SortableContext items={sortedInboxes.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                <AnimatePresence>
+                  {sortedInboxes.map((inbox) => (
+                    <SortableInboxCard
+                      key={inbox.id}
+                      inbox={inbox}
+                      isActive={activeInboxId === inbox.id}
+                      copiedId={copiedId}
+                      onSwitch={() => handleSwitch(inbox.id)}
+                      onCopy={() => copyEmail(inbox)}
+                      onExtend={() => extendMutation.mutate({ id: inbox.id, mins: 10 })}
+                      onDelete={() => { if (confirm('Delete this inbox?')) deleteMutation.mutate(inbox.id) }}
+                      onExpire={() => removeInbox(inbox.id)}
+                      messageCount={inbox._count?.messages || 0}
+                    />
+                  ))}
+                </AnimatePresence>
+              </SortableContext>
+            </div>
+          </DndContext>
         </div>
       )}
 
@@ -283,5 +298,109 @@ function QuickNewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ---------- Sortable Inbox Card ----------
+function SortableInboxCard({
+  inbox, isActive, copiedId, onSwitch, onCopy, onExtend, onDelete, onExpire, messageCount,
+}: {
+  inbox: Inbox
+  isActive: boolean
+  copiedId: string | null
+  onSwitch: () => void
+  onCopy: () => void
+  onExtend: () => void
+  onDelete: () => void
+  onExpire: () => void
+  messageCount: number
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: inbox.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.8 : undefined,
+  }
+
+  return (
+    <motion.div
+      ref={setNodeRef}
+      style={style}
+      layout
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      className={cn(
+        'relative rounded-xl border bg-card p-4 transition-colors',
+        isActive ? 'border-primary border-2 shadow-md shadow-emerald-500/10' : 'border-border/60 hover:border-border',
+        isDragging && 'shadow-2xl shadow-emerald-500/20 ring-2 ring-emerald-500/40'
+      )}
+    >
+      {/* Drag handle */}
+      <button
+        {...attributes}
+        {...listeners}
+        className="absolute top-2 left-2 grid h-7 w-5 place-items-center text-muted-foreground/40 hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
+        aria-label="Drag to reorder"
+        title="Drag to reorder"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+
+      {isActive && (
+        <span className="absolute top-3 right-3">
+          <Badge className="bg-primary text-primary-foreground text-[10px] gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground animate-pulse" /> Active
+          </Badge>
+        </span>
+      )}
+
+      <div className="flex items-start gap-3 pl-6 cursor-pointer" onClick={onSwitch}>
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 text-white">
+          <Mail className="h-5 w-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{inbox.isCustomAlias ? <Sparkles className="h-3 w-3" /> : <Zap className="h-3 w-3" />}</span>
+            {inbox.burnOnRead && <Flame className="h-3 w-3 text-orange-500" />}
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{inbox.isCustomAlias ? 'Custom' : 'Random'}</span>
+          </div>
+          <p className="mt-0.5 font-mono text-sm font-semibold break-all leading-tight">{inbox.email}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between pl-6">
+        <CountdownTimer expiresAt={inbox.expiresAt} variant="compact" onExpire={onExpire} />
+        <span className="text-xs text-muted-foreground">
+          {messageCount} {messageCount === 1 ? 'message' : 'messages'}
+        </span>
+      </div>
+
+      {/* Action row */}
+      <div className="mt-3 flex items-center gap-1.5 border-t border-border/40 pt-3 pl-6" onClick={(e) => e.stopPropagation()}>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onCopy}>
+          {copiedId === inbox.id ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+          {copiedId === inbox.id ? 'Copied' : 'Copy'}
+        </Button>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onExtend}>
+          <Clock className="h-3 w-3" /> +10m
+        </Button>
+        <div className="flex-1" />
+        <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={onSwitch}>
+          Open <ChevronRight className="h-3 w-3" />
+        </Button>
+        <Button
+          size="sm" variant="ghost"
+          className="h-7 w-7 p-0 text-red-500 hover:bg-red-500/10"
+          onClick={onDelete}
+          title="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </motion.div>
   )
 }

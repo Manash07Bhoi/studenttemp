@@ -72,6 +72,10 @@ interface AppState {
   // web push notification pre-prompt (dismissed state)
   pushPromptDismissed: boolean
   setPushPromptDismissed: (v: boolean) => void
+
+  // global search dialog
+  globalSearchOpen: boolean
+  setGlobalSearchOpen: (v: boolean) => void
 }
 
 const LS = {
@@ -171,6 +175,9 @@ export const useAppStore = create<AppState>((set) => ({
     if (typeof window !== 'undefined') writeLS('studenttemp_push_dismissed', v)
     set({ pushPromptDismissed: v })
   },
+
+  globalSearchOpen: false,
+  setGlobalSearchOpen: (v) => set({ globalSearchOpen: v }),
 }))
 
 // Hydrate persisted UI flags on the client after mount (avoids SSR hydration mismatch).

@@ -42,6 +42,7 @@ export function CommandPalette() {
   const appLockEnabled = useAppStore((s) => s.appLockEnabled)
   const setLocked = useAppStore((s) => s.setLocked)
   const setShortcutsDialogOpen = useAppStore((s) => s.setShortcutsDialogOpen)
+  const setGlobalSearchOpen = useAppStore((s) => s.setGlobalSearchOpen)
   const { resolvedTheme, setTheme } = useTheme()
 
   const close = React.useCallback(() => setOpen(false), [setOpen])
@@ -115,6 +116,11 @@ export function CommandPalette() {
       window.dispatchEvent(new CustomEvent('studenttemp:focus-search'))
     }, 50)
   }, [close])
+
+  const openGlobalSearch = React.useCallback(() => {
+    close()
+    setTimeout(() => setGlobalSearchOpen(true), 50)
+  }, [close, setGlobalSearchOpen])
 
   const switchInbox = React.useCallback(
     (id: string) => {
@@ -199,6 +205,11 @@ export function CommandPalette() {
               <CommandShortcut>/</CommandShortcut>
             </CommandItem>
           )}
+          <CommandItem onSelect={openGlobalSearch} value="search all inboxes global">
+            <Search className="text-emerald-500" />
+            <span>Search all inboxes</span>
+            <CommandShortcut>Shift+/</CommandShortcut>
+          </CommandItem>
           <CommandItem onSelect={toggleTheme} value="toggle theme">
             {resolvedTheme === 'dark' ? (
               <Sun className="text-amber-500" />
