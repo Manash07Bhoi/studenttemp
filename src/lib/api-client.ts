@@ -1,6 +1,7 @@
 // Typed API client for StudentTemp
 import type {
   DomainsResponse, Inbox, MessageSummary, MessageFull, SessionStats, LegalDoc,
+  AnalyticsResponse,
 } from './types'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -68,4 +69,7 @@ export const api = {
     }),
 
   getLegal: (doc: string) => req<LegalDoc>(`/api/legal/${doc}`),
+
+  getAnalytics: (rangeDays: number) =>
+    req<AnalyticsResponse>(`/api/analytics?rangeDays=${rangeDays}`),
 }

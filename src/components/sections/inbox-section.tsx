@@ -103,6 +103,21 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
     })
   }
 
+  // Listen for global "generate inbox" events dispatched by the keyboard
+  // shortcuts hook (n key) and the command palette (Generate new inbox action).
+  // We re-subscribe whenever the available domains list changes so the
+  // listener always uses the freshest domain preference.
+  useEffect(() => {
+    const onGen = () => {
+      createMutation.mutate({
+        domain: domainsData?.domains[0]?.domain || 'studentbox.in',
+        lifetimeMinutes: 10,
+      })
+    }
+    window.addEventListener('studenttemp:generate-inbox', onGen)
+    return () => window.removeEventListener('studenttemp:generate-inbox', onGen)
+  }, [domainsData?.domains, createMutation])
+
   const handleTriggerMail = () => {
     if (!activeInbox) return
     triggerGenerate(activeInbox.email)
@@ -205,20 +220,20 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
 
                 {/* Meta info */}
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div className="rounded-lg bg-muted/40 p-2.5">
-                    <div className="text-muted-foreground">Domain</div>
-                    <div className="font-semibold truncate">{typeof activeInbox.domain === 'string' ? activeInbox.domain : activeInbox.domain?.domain || activeInbox.domain}</div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <div className="text-muted-foreground text-[10px] uppercase tracking-wider mb-1">Domain</div>
+                    <div className="font-semibold truncate" title={typeof activeInbox.domain === 'string' ? activeInbox.domain : activeInbox.domain?.domain}>{typeof activeInbox.domain === 'string' ? activeInbox.domain : activeInbox.domain?.domain || activeInbox.domain}</div>
                   </div>
-                  <div className="rounded-lg bg-muted/40 p-2.5">
-                    <div className="text-muted-foreground">Created</div>
-                    <div className="font-semibold">{new Date(activeInbox.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <div className="text-muted-foreground text-[10px] uppercase tracking-wider mb-1">Created</div>
+                    <div className="font-semibold tabular-nums">{new Date(activeInbox.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                   </div>
-                  <div className="rounded-lg bg-muted/40 p-2.5">
-                    <div className="text-muted-foreground">Messages</div>
-                    <div className="font-semibold">{activeInbox._count?.messages || 0}</div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <div className="text-muted-foreground text-[10px] uppercase tracking-wider mb-1">Messages</div>
+                    <div className="font-semibold tabular-nums">{activeInbox._count?.messages || 0}</div>
                   </div>
-                  <div className="rounded-lg bg-muted/40 p-2.5">
-                    <div className="text-muted-foreground">Mode</div>
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <div className="text-muted-foreground text-[10px] uppercase tracking-wider mb-1">Mode</div>
                     <div className="font-semibold capitalize flex items-center gap-1">
                       {activeInbox.burnOnRead && <Flame className="h-3 w-3 text-orange-500" />}
                       {activeInbox.burnOnRead ? 'Burn-on-read' : 'Standard'}
@@ -226,7 +241,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-lg bg-emerald-500/5 border border-emerald-500/15 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                <div className="mt-4 rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2.5 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
                   <Info className="h-3.5 w-3.5 shrink-0" />
                   <span>Tap the email or the Copy button to copy. New messages appear on the Messages tab.</span>
                 </div>
@@ -305,7 +320,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
             <li className="flex gap-2"><Check className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" /> External resources in emails are blocked</li>
             <li className="flex gap-2"><Check className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" /> SPF/DKIM/DMARC results shown per message</li>
             <li className="flex gap-2"><Check className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" /> Inboxes auto-delete on expiry</li>
-            <li className="flex gap-2 flex-wrap"><AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" /> <span>Not for sensitive accounts — anyone with the address can read the mail.</span></li>
+            <li className="flex gap-2"><AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" /> <span>Not for sensitive accounts — anyone with the address can read the mail.</span></li>
           </ul>
           <Button
             variant="link"

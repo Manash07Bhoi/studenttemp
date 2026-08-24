@@ -3,16 +3,21 @@
 import { useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, Mail, AtSign, Settings as SettingsIcon, Info, Shield, Activity, Zap, Plus, BookOpen } from 'lucide-react'
+import { Menu, Mail, AtSign, Settings as SettingsIcon, Info, Shield, Activity, Zap, Plus, Lock, Command as CommandIcon, BarChart3 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import type { RealtimeMessage } from '@/lib/types'
 import { useAppStore, type SectionId } from '@/lib/store'
 import { useSocket } from '@/hooks/use-socket'
 import { useBroadcastChannel } from '@/hooks/use-broadcast'
 import { useSound } from '@/hooks/use-settings'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { toast } from 'sonner'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SideDrawer } from '@/components/side-drawer'
+import { CommandPalette } from '@/components/command-palette'
+import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { InboxSection } from '@/components/sections/inbox-section'
 import { MessagesSection } from '@/components/sections/messages-section'
 import { AddressesSection } from '@/components/sections/addresses-section'
@@ -20,14 +25,16 @@ import { ComposeSection } from '@/components/sections/compose-section'
 import { SettingsSection } from '@/components/sections/settings-section'
 import { AboutSection } from '@/components/sections/about-section'
 import { LegalSection } from '@/components/sections/legal-section'
-import { AppLockSection } from '@/components/sections/applock-section'
+import { AppLockSection, LockScreen, useAutoLock } from '@/components/sections/applock-section'
 import { OnboardingOverlay } from '@/components/sections/onboarding-overlay'
+import { AnalyticsSection } from '@/components/sections/analytics-section'
 
 const NAV_ITEMS: { id: SectionId; label: string; icon: typeof InboxIcon }[] = [
   { id: 'inbox', label: 'Inbox', icon: Mail },
   { id: 'messages', label: 'Messages', icon: Activity },
   { id: 'addresses', label: 'Addresses', icon: AtSign },
   { id: 'compose', label: 'Compose', icon: Plus },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
   { id: 'about', label: 'About', icon: Info },
 ]
@@ -54,8 +61,23 @@ export function AppShell() {
   const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
   const messages = useAppStore((s) => s.messages)
   const hasSeenOnboarding = useAppStore((s) => s.hasSeenOnboarding)
+  const appLockEnabled = useAppStore((s) => s.appLockEnabled)
   const queryClient = useQueryClient()
   const sound = useSound()
+
+  // App-wide auto-lock: listens for page-visibility changes (tab backgrounded,
+  // app minimized, screen off) and engages the lock screen when the configured
+  // delay has elapsed. Also exposes `lockNow` for the header button.
+  const { lockNow } = useAutoLock()
+
+  // Global keyboard shortcuts (g-prefix nav, copy / refresh / focus-search,
+  // j/k message navigation, ⌘K palette, ? shortcuts help, Esc dismiss).
+  // Internally suppresses shortcuts while typing in inputs (except ⌘K + Esc).
+  useKeyboardShortcuts()
+
+  // Command palette + shortcuts help are driven by store state so both the
+  // hook and the header ⌘K button can open them.
+  const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
 
   const { data: inboxesData } = useQuery({
     queryKey: ['inboxes'],
@@ -186,6 +208,7 @@ export function AppShell() {
     onboarding: InboxSection,
     compose: ComposeSection,
     sessions: SettingsSection,
+    analytics: AnalyticsSection,
   }
 
   const ActiveSection = sections[activeSection] || InboxSection
@@ -198,6 +221,11 @@ export function AppShell() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <OnboardingOverlay />
+      {/* App-wide lock screen. Self-gates on `appLockEnabled && isLocked` so it
+          is invisible unless the user has set up App Lock AND the lock is engaged.
+          Mounted AFTER OnboardingOverlay so onboarding takes precedence on the
+          very first run (lock is meaningless until a PIN exists). */}
+      <LockScreen />
       <SideDrawer />
 
       {/* Header */}
@@ -271,7 +299,39 @@ export function AppShell() {
               </span>
               <span className="text-muted-foreground font-medium">{isConnected ? 'Live' : 'Connecting'}</span>
             </div>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCommandPaletteOpen(true)}
+                    className="hidden md:inline-flex h-9 gap-2 pr-2 pl-2.5 text-muted-foreground hover:text-foreground"
+                    aria-label="Open command palette"
+                  >
+                    <CommandIcon className="h-4 w-4 text-emerald-500" />
+                    <span className="text-xs">Search</span>
+                    <kbd className="ml-1 inline-flex h-5 items-center gap-0.5 rounded border border-border/70 bg-muted px-1 font-mono text-[10px] tracking-wider text-muted-foreground">
+                      ⌘K
+                    </kbd>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Open command palette (⌘K)
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <ThemeToggle />
+            {appLockEnabled && (
+              <button
+                onClick={lockNow}
+                className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 hover:bg-accent transition-colors text-emerald-600 dark:text-emerald-400"
+                aria-label="Lock now"
+                title="Lock now"
+              >
+                <Lock className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -324,11 +384,15 @@ export function AppShell() {
             <span className="flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" /> Real-time</span>
             <span className="flex items-center gap-1.5"><Activity className="h-3.5 w-3.5" /> {inboxes.length} active</span>
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-foreground/70 font-medium">
             This is a private temporary address, not an official institution email.
           </div>
         </div>
       </footer>
+
+      {/* Command palette (⌘K) + keyboard shortcuts help (?) — driven by store state */}
+      <CommandPalette />
+      <KeyboardShortcutsDialog />
     </div>
   )
 }

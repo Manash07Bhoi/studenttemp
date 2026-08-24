@@ -250,11 +250,11 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
       </Card>
 
       {/* About footer */}
-      <div className="rounded-xl border border-border/60 bg-muted/30 p-4 text-center text-xs text-muted-foreground">
-        <p className="flex items-center justify-center gap-1.5">
-          Built with <Heart className="h-3 w-3 text-red-500 fill-red-500" /> for students & developers
+      <div className="rounded-xl border border-border/60 bg-muted/40 p-5 text-center">
+        <p className="flex items-center justify-center gap-1.5 text-sm font-medium text-foreground/80">
+          Built with <Heart className="h-3.5 w-3.5 text-red-500 fill-red-500" /> for students & developers
         </p>
-        <p className="mt-1">StudentTemp · Privacy-first disposable email · No tracking, no sign-up</p>
+        <p className="mt-1.5 text-xs text-muted-foreground">StudentTemp · Privacy-first disposable email · No tracking, no sign-up</p>
       </div>
     </div>
   )
@@ -270,24 +270,24 @@ function SettingRow({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-start gap-3 py-2">
+    <div className="flex items-center gap-3 py-2.5">
       <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${danger ? 'bg-red-500/10' : 'bg-muted'}`}>
         {icon}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground">{desc}</div>
+        <div className="text-sm font-medium leading-tight">{title}</div>
+        <div className="text-xs text-muted-foreground mt-0.5 leading-snug">{desc}</div>
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="shrink-0 flex items-center">{children}</div>
     </div>
   )
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg bg-muted/40 p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-lg font-bold tabular-nums">{value}</div>
+    <div className="rounded-lg bg-muted/40 p-3.5 border border-border/30">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{label}</div>
+      <div className="mt-1 text-xl font-bold tabular-nums">{value}</div>
     </div>
   )
 }

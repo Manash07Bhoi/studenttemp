@@ -1,8 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import {
+  motion, AnimatePresence, useMotionValue, useTransform, useReducedMotion,
+  useAnimationControls,
+} from 'framer-motion'
 import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
@@ -66,14 +69,26 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const setMessages = useAppStore((s) => s.setMessages)
   const updateMessage = useAppStore((s) => s.updateMessage)
   const removeMessage = useAppStore((s) => s.removeMessage)
+  const prependMessage = useAppStore((s) => s.prependMessage)
   const openMessageId = useAppStore((s) => s.openMessageId)
   const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
   const freshMessageId = useAppStore((s) => s.freshMessageId)
+  const selectedMessageId = useAppStore((s) => s.selectedMessageId)
+  const setSelectedMessageId = useAppStore((s) => s.setSelectedMessageId)
   const queryClient = useQueryClient()
 
   const activeInbox = inboxes.find((i) => i.id === activeInboxId)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+
+  // Search input ref — focused by the `/` keyboard shortcut.
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Mirror `openMessageId` into a ref so the undo-aware delete callback can
+  // read the latest value without re-creating (lets us keep its deps list
+  // narrow — only the stable setState functions).
+  const openMessageIdRef = useRef<string | null>(openMessageId)
+  useEffect(() => { openMessageIdRef.current = openMessageId }, [openMessageId])
 
   const { data: msgData, isFetching, refetch } = useQuery({
     queryKey: ['messages', activeInboxId],
@@ -87,6 +102,36 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
       setMessages(msgData.messages)
     }
   }, [msgData, setMessages])
+
+  // Keyboard-shortcut bridge: listen for global events dispatched by the
+  // useKeyboardShortcuts hook (and the command palette).
+  //   studenttemp:refresh-messages → re-run the messages query
+  //   studenttemp:focus-search     → focus the search input
+  useEffect(() => {
+    const onRefresh = () => {
+      refetch()
+      toast.success('Messages refreshed', { duration: 1200 })
+    }
+    const onFocusSearch = () => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    window.addEventListener('studenttemp:refresh-messages', onRefresh)
+    window.addEventListener('studenttemp:focus-search', onFocusSearch)
+    return () => {
+      window.removeEventListener('studenttemp:refresh-messages', onRefresh)
+      window.removeEventListener('studenttemp:focus-search', onFocusSearch)
+    }
+  }, [refetch])
+
+  // Auto-scroll the keyboard-selected message into view (j/k navigation).
+  useEffect(() => {
+    if (!selectedMessageId) return
+    const el = document.querySelector<HTMLElement>(`[data-msg-id="${selectedMessageId}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [selectedMessageId])
 
   const filtered = messages.filter((m) => {
     if (filter === 'unread' && m.isRead) return false
@@ -112,15 +157,70 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteMessage(id),
-    onSuccess: (_d, id) => {
-      removeMessage(id)
+  // ----------------------------------------------------------------------------
+  // Undo-aware delete: swipe-left commit + reader "Delete" button both route here.
+  //
+  // The flow per MOTION-SYSTEM §5.1:
+  //   1. Optimistically remove the message from the store (zero-latency UI).
+  //   2. Show an Undo snackbar with a shrinking progress bar (5s hold).
+  //   3. If the user taps "Undo" within the window, re-insert the message
+  //      and never call the API.
+  //   4. Otherwise fire the real DELETE request after the snackbar dismisses.
+  //   5. On API failure, re-insert the message and surface an error toast.
+  // ----------------------------------------------------------------------------
+  const pendingDeleteRef = useRef<Map<string, { msg: MessageSummary; timer: ReturnType<typeof setTimeout> }>>(new Map())
+
+  const handleDeleteWithUndo = useCallback((msg: MessageSummary) => {
+    // If the same message is already pending deletion, ignore duplicate calls.
+    const existing = pendingDeleteRef.current.get(msg.id)
+    if (existing) return
+
+    // 1. Optimistic removal (also closes the reader if it was open).
+    removeMessage(msg.id)
+    if (openMessageIdRef.current === msg.id) {
       setOpenMessageId(null)
-      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
-      toast.success('Message deleted')
-    },
-  })
+    }
+
+    // 2. Schedule the real API delete for 5s from now.
+    const timer = setTimeout(() => {
+      pendingDeleteRef.current.delete(msg.id)
+      api.deleteMessage(msg.id)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+        })
+        .catch(() => {
+          // Restore the message if the server rejected the delete.
+          prependMessage(msg)
+          toast.error('Failed to delete message', {
+            description: 'Restored to your inbox.',
+          })
+        })
+    }, 5000)
+
+    pendingDeleteRef.current.set(msg.id, { msg, timer })
+
+    // 3. Show the snackbar with an Undo affordance.
+    toast.custom(
+      (t) => (
+        <UndoSnackbar
+          toastId={t}
+          subject={msg.subject}
+          onUndo={() => {
+            const entry = pendingDeleteRef.current.get(msg.id)
+            if (entry) {
+              clearTimeout(entry.timer)
+              pendingDeleteRef.current.delete(msg.id)
+              // Re-insert at the top of the list (it was the most recently
+              // interacted-with message, so visually that's where it belongs).
+              prependMessage(msg)
+            }
+            toast.dismiss(t)
+          }}
+        />
+      ),
+      { duration: 5000, id: `undo-delete-${msg.id}` }
+    )
+  }, [removeMessage, setOpenMessageId, prependMessage, queryClient, activeInboxId])
 
   const reportMutation = useMutation({
     mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
@@ -176,15 +276,20 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
+          ref={searchInputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search subject, sender, or content..."
+          placeholder="Search subject, sender, or content…  (press / to focus)"
           className="pl-9"
         />
-        {query && (
-          <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+        {query ? (
+          <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear search">
             <X className="h-4 w-4" />
           </button>
+        ) : (
+          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex h-5 items-center rounded border border-border/70 bg-muted px-1.5 font-mono text-[10px] tracking-wider text-muted-foreground">
+            /
+          </kbd>
         )}
       </div>
 
@@ -246,11 +351,15 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                       key={msg.id}
                       msg={msg}
                       active={openMessageId === msg.id}
+                      selected={selectedMessageId === msg.id && openMessageId !== msg.id}
                       fresh={freshMessageId === msg.id}
-                      onOpen={() => setOpenMessageId(msg.id)}
+                      onOpen={() => {
+                        setOpenMessageId(msg.id)
+                        setSelectedMessageId(msg.id)
+                      }}
                       onToggleRead={() => updateMutation.mutate({ id: msg.id, data: { isRead: !msg.isRead } })}
                       onToggleStar={() => updateMutation.mutate({ id: msg.id, data: { isStarred: !msg.isStarred } })}
-                      onDelete={() => deleteMutation.mutate(msg.id)}
+                      onDelete={() => handleDeleteWithUndo(msg)}
                       onReport={(reason, category) => reportMutation.mutate({ id: msg.id, reason, category })}
                     />
                   ))}
@@ -268,7 +377,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                 key={openMsg.id}
                 messageSummary={openMsg}
                 onBack={() => setOpenMessageId(null)}
-                onDelete={() => deleteMutation.mutate(openMsg.id)}
+                onDelete={() => handleDeleteWithUndo(openMsg)}
                 onToggleStar={() => updateMutation.mutate({ id: openMsg.id, data: { isStarred: !openMsg.isStarred } })}
                 onReport={(reason, category) => reportMutation.mutate({ id: openMsg.id, reason, category })}
               />
@@ -297,11 +406,24 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
 }
 
 // ---------------- Message List Item ----------------
+// Swipe gestures per MOTION-SYSTEM.md §5.1:
+//   • drag="x" with elastic constraints, card follows finger 1:1.
+//   • swipe-left past 80 px (or 500 px/s velocity) → commit-delete:
+//     card slides fully off-screen (200ms ease-in), then onDelete() fires
+//     (which surfaces the Undo snackbar + collapses the row).
+//   • swipe-right past 80 px (or 500 px/s velocity) → toggle read/unread,
+//     card springs back to rest (no removal).
+//   • background revealed underneath: red-500 with trash icon for delete,
+//     emerald-500 with mail/mail-open icon swap for read/unread.
+//   • icon scales up as |drag| grows.
+//   • prefers-reduced-motion → drag disabled entirely; hover buttons still work.
+//   • tap (no drag) → onOpen(). drag → suppress click.
 function MessageListItem({
-  msg, active, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport,
+  msg, active, selected, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport,
 }: {
   msg: MessageSummary
   active: boolean
+  selected: boolean
   fresh: boolean
   onOpen: () => void
   onToggleRead: () => void
@@ -312,94 +434,293 @@ function MessageListItem({
   const cat = CATEGORY_META[msg.category] || CATEGORY_META.general
   const hasAuthIssue = msg.spf !== 'pass' || msg.dkim !== 'pass' || msg.dmarc !== 'pass'
 
+  const reduceMotion = useReducedMotion()
+  const dragX = useMotionValue(0)
+  const controls = useAnimationControls()
+
+  // Track whether a real drag happened so we can suppress the click that
+  // follows. Framer Motion fires `onClick` even after a drag ends if the
+  // pointer-up happens over the same element; we want a tap (no movement) to
+  // open the message, and a drag to NOT open it.
+  const draggedRef = useRef(false)
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+
+  // ---- drag x → background opacity + icon scale mappings ----
+  // Delete background: 0 at rest → 1 when dragged to -120px.
+  const deleteBgOpacity = useTransform(dragX, [-120, -40], [1, 0], { clamp: true })
+  // Read/unread background: 0 at rest → 1 when dragged to +120px.
+  const readBgOpacity = useTransform(dragX, [40, 120], [0, 1], { clamp: true })
+  // Trash icon scales from 0.8 → 1.4 as the user swipes left past the threshold.
+  const deleteIconScale = useTransform(dragX, [-120, -40], [1.4, 0.8], { clamp: true })
+  // Mail icon scales from 0.8 → 1.4 as the user swipes right past the threshold.
+  const readIconScale = useTransform(dragX, [40, 120], [0.8, 1.4], { clamp: true })
+
+  const COMMIT_THRESHOLD = 80 // px
+  const VELOCITY_THRESHOLD = 500 // px/s
+
+  const handleDragEnd = async (_e: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
+    // Clear the drag flag (the click that fires right after will check it).
+    // Defer clearing by a tick so the click event sees `draggedRef = true`.
+    setTimeout(() => { draggedRef.current = false }, 0)
+
+    const offset = info.offset.x
+    const velocity = info.velocity.x
+
+    if (offset < -COMMIT_THRESHOLD || velocity < -VELOCITY_THRESHOLD) {
+      // Swipe left → delete.
+      // Slide the card fully off-screen (200ms ease-in per spec), then call
+      // onDelete() which optimistically removes the message from the store
+      // and triggers the row's exit-animation (height → 0).
+      await controls.start({
+        x: '-120%',
+        opacity: 0,
+        transition: { duration: 0.2, ease: 'easeIn' },
+      })
+      onDelete()
+      // The parent <motion.li> unmounts (because removeMessage removes the
+      // message from the store), so we don't need to reset dragX/controls here.
+    } else if (offset > COMMIT_THRESHOLD || velocity > VELOCITY_THRESHOLD) {
+      // Swipe right → toggle read/unread, then spring back to rest.
+      onToggleRead()
+      await controls.start({
+        x: 0,
+        transition: { type: 'spring', stiffness: 500, damping: 30 },
+      })
+    } else {
+      // Spring back to rest (no commit).
+      await controls.start({
+        x: 0,
+        transition: { type: 'spring', stiffness: 500, damping: 30 },
+      })
+    }
+  }
+
+  const handleClick = () => {
+    if (draggedRef.current) return
+    onOpen()
+  }
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    pointerDownRef.current = { x: e.clientX, y: e.clientY }
+  }
+  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    // If the pointer moved less than ~5 px since pointer-down, this was a tap,
+    // not a drag. Framer Motion will fire onClick naturally; we just need to
+    // make sure `draggedRef` reflects the truth.
+    const down = pointerDownRef.current
+    pointerDownRef.current = null
+    if (down) {
+      const dx = Math.abs(e.clientX - down.x)
+      const dy = Math.abs(e.clientY - down.y)
+      if (dx < 5 && dy < 5) {
+        draggedRef.current = false
+      }
+    }
+  }
+
   return (
     <motion.li
       layout
+      data-msg-id={msg.id}
       initial={fresh ? { opacity: 0, y: -16 } : false}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+      exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: 'hidden' }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-      className={cn(
-        'relative group cursor-pointer transition-colors',
-        active ? 'bg-accent/60' : 'hover:bg-accent/30',
-        fresh && 'bg-emerald-500/5'
-      )}
+      className="relative overflow-hidden"
     >
-      <button onClick={onOpen} className="w-full text-left p-3 flex gap-3">
-        <div className="relative shrink-0">
-          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
-            {msg.fromName[0]?.toUpperCase() || '?'}
-          </div>
-          {!msg.isRead && (
-            <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <span className={cn('text-sm truncate', msg.isRead ? 'font-medium text-foreground' : 'font-bold text-foreground')}>
-              {msg.fromName}
-            </span>
-            <span className="text-[11px] text-muted-foreground shrink-0">
-              {formatTime(msg.receivedAt)}
-            </span>
-          </div>
-          <div className="mt-0.5 flex items-center gap-1.5">
-            <span className={cn('text-sm truncate flex-1', msg.isRead ? 'text-foreground/80' : 'text-foreground font-semibold')}>
-              {msg.subject}
-            </span>
-            {msg.isStarred && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" />}
-            {msg.hasAttachment && <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-            {hasAuthIssue && <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground truncate">{msg.previewText}</p>
-          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-            <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-4', cat.color)}>{cat.label}</Badge>
-            {msg.scanStatus === 'quarantined' && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-red-500/10 text-red-600 border-red-500/20">
-                <Ban className="h-2.5 w-2.5 mr-0.5" /> Quarantined
-              </Badge>
-            )}
-            {msg.externalResourcesBlocked > 0 && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">
-                <Ban className="h-2.5 w-2.5 mr-0.5" /> {msg.externalResourcesBlocked} blocked
-              </Badge>
-            )}
-          </div>
-        </div>
-      </button>
-
-      {/* Hover quick actions */}
-      <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-0.5 bg-background/90 backdrop-blur rounded-lg border border-border/60 p-0.5 shadow-sm">
-        <button onClick={(e) => { e.stopPropagation(); onToggleStar() }} title={msg.isStarred ? 'Unstar' : 'Star'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
-          <Star className={cn('h-3.5 w-3.5', msg.isStarred && 'text-amber-500 fill-amber-500')} />
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); onToggleRead() }} title={msg.isRead ? 'Mark unread' : 'Mark read'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
-          {msg.isRead ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete" className="grid h-7 w-7 place-items-center rounded hover:bg-red-500/10 text-red-500">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button onClick={(e) => e.stopPropagation()} title="More" className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
-              <ChevronRight className="h-3.5 w-3.5 rotate-90" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onReport('Spam or promotional abuse', 'spam')} className="gap-2 text-red-600">
-              <Flag className="h-3.5 w-3.5" /> Report as spam
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onReport('Phishing or fraud attempt', 'phishing')} className="gap-2 text-red-600">
-              <Flag className="h-3.5 w-3.5" /> Report phishing
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onReport('Other', 'other')} className="gap-2 text-red-600">
-              <Flag className="h-3.5 w-3.5" /> Report (other)
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {/* ---- Swipe action backgrounds (revealed underneath the card) ---- */}
+      {/* Delete (left swipe) */}
+      <div
+        className="absolute inset-0 bg-red-500 flex items-center justify-start pl-6 pointer-events-none"
+        aria-hidden="true"
+      >
+        <motion.div
+          style={{ opacity: deleteBgOpacity, scale: deleteIconScale }}
+          className="flex flex-col items-center gap-1 text-white"
+        >
+          <Trash2 className="h-5 w-5" />
+          <span className="text-[10px] font-semibold uppercase tracking-wide">Delete</span>
+        </motion.div>
       </div>
+      {/* Read/unread (right swipe) */}
+      <div
+        className="absolute inset-0 bg-emerald-500 flex items-center justify-end pr-6 pointer-events-none"
+        aria-hidden="true"
+      >
+        <motion.div
+          style={{ opacity: readBgOpacity, scale: readIconScale }}
+          className="flex flex-col items-center gap-1 text-white"
+        >
+          {msg.isRead ? <Mail className="h-5 w-5" /> : <MailOpen className="h-5 w-5" />}
+          <span className="text-[10px] font-semibold uppercase tracking-wide">
+            {msg.isRead ? 'Unread' : 'Read'}
+          </span>
+        </motion.div>
+      </div>
+
+      {/* ---- Draggable card ---- */}
+      <motion.div
+        drag={reduceMotion ? false : 'x'}
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.5}
+        dragMomentum={false}
+        style={{ x: dragX }}
+        animate={controls}
+        onDragStart={() => { draggedRef.current = true }}
+        onDragEnd={handleDragEnd}
+        whileDrag={{ cursor: 'grabbing' }}
+        className={cn(
+          'relative group cursor-pointer bg-card transition-colors touch-pan-y',
+          active
+            ? 'bg-emerald-500/15 ring-1 ring-inset ring-emerald-500/50 shadow-sm'
+            : selected
+              ? 'bg-emerald-500/8 ring-1 ring-inset ring-emerald-500/30'
+              : 'hover:bg-accent/40',
+          fresh && 'bg-emerald-500/5'
+        )}
+      >
+        <button
+          onClick={handleClick}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          className="w-full text-left p-3 flex gap-3 min-w-0"
+          aria-label={`Open message: ${msg.subject} from ${msg.fromName}`}
+        >
+          <div className="relative shrink-0">
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+              {msg.fromName[0]?.toUpperCase() || '?'}
+            </div>
+            {!msg.isRead && (
+              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className={cn('text-sm truncate min-w-0', msg.isRead ? 'font-medium text-foreground' : 'font-bold text-foreground')}>
+                {msg.fromName}
+              </span>
+              <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+                {formatTime(msg.receivedAt)}
+              </span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+              <span className={cn('text-sm truncate flex-1 min-w-0', msg.isRead ? 'text-foreground/70' : 'text-foreground font-semibold')}>
+                {msg.subject}
+              </span>
+              {msg.isStarred && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" />}
+              {msg.hasAttachment && <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+              {hasAuthIssue && <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground truncate min-w-0">{msg.previewText}</p>
+            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+              <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-4', cat.color)}>{cat.label}</Badge>
+              {msg.scanStatus === 'quarantined' && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-red-500/10 text-red-600 border-red-500/20">
+                  <Ban className="h-2.5 w-2.5 mr-0.5" /> Quarantined
+                </Badge>
+              )}
+              {msg.externalResourcesBlocked > 0 && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">
+                  <Ban className="h-2.5 w-2.5 mr-0.5" /> {msg.externalResourcesBlocked} blocked
+                </Badge>
+              )}
+            </div>
+          </div>
+        </button>
+
+        {/* Hover quick actions — preserved unchanged */}
+        <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-0.5 bg-background/90 backdrop-blur rounded-lg border border-border/60 p-0.5 shadow-sm">
+          <button onClick={(e) => { e.stopPropagation(); onToggleStar() }} title={msg.isStarred ? 'Unstar' : 'Star'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+            <Star className={cn('h-3.5 w-3.5', msg.isStarred && 'text-amber-500 fill-amber-500')} />
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onToggleRead() }} title={msg.isRead ? 'Mark unread' : 'Mark read'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+            {msg.isRead ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete" className="grid h-7 w-7 place-items-center rounded hover:bg-red-500/10 text-red-500">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button onClick={(e) => e.stopPropagation()} title="More" className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+                <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onReport('Spam or promotional abuse', 'spam')} className="gap-2 text-red-600">
+                <Flag className="h-3.5 w-3.5" /> Report as spam
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onReport('Phishing or fraud attempt', 'phishing')} className="gap-2 text-red-600">
+                <Flag className="h-3.5 w-3.5" /> Report phishing
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onReport('Other', 'other')} className="gap-2 text-red-600">
+                <Flag className="h-3.5 w-3.5" /> Report (other)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </motion.div>
     </motion.li>
+  )
+}
+
+// ---------------- Undo Snackbar (custom sonner toast) ----------------
+// Per MOTION-SYSTEM.md §5.1: slides up from bottom, holds 5s with a shrinking
+// progress bar, tapping "Undo" re-inserts the deleted message.
+function UndoSnackbar({
+  toastId,
+  subject,
+  onUndo,
+}: {
+  toastId: string | number
+  subject: string
+  onUndo: () => void
+}) {
+  const [progress, setProgress] = useState(100)
+  useEffect(() => {
+    const DURATION = 5000
+    const start = performance.now()
+    let raf = 0
+    const tick = (now: number) => {
+      const elapsed = now - start
+      const remaining = Math.max(0, DURATION - elapsed)
+      setProgress((remaining / DURATION) * 100)
+      if (remaining > 0) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 60, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.96 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.8 }}
+      className="relative flex items-center gap-3 rounded-xl border border-border/60 bg-zinc-900 text-white px-4 py-3 shadow-xl min-w-[300px] max-w-[420px] overflow-hidden"
+      role="alert"
+      aria-live="assertive"
+    >
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-red-500/20 text-red-300 shrink-0">
+        <Trash2 className="h-4 w-4" />
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium">Message deleted</div>
+        <div className="text-xs text-zinc-300 truncate">{subject}</div>
+      </div>
+      <button
+        onClick={onUndo}
+        className="text-sm font-semibold text-emerald-300 hover:text-emerald-200 px-2 py-1 rounded-md hover:bg-white/5 transition-colors shrink-0"
+        aria-label="Undo delete"
+      >
+        Undo
+      </button>
+      {/* Shrinking progress bar (5s countdown). */}
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400/80" style={{ width: `${progress}%` }} aria-hidden="true" />
+      {/* Hidden button to allow Escape to dismiss (sonner handles this anyway
+          when focus is on the toast; this is a defensive belt-and-braces). */}
+      <span className="sr-only" data-toast-id={toastId} />
+    </motion.div>
   )
 }
 

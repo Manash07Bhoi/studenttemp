@@ -6,6 +6,7 @@ import type { Inbox, MessageSummary } from '@/lib/types'
 export type SectionId =
   | 'inbox' | 'messages' | 'addresses' | 'settings' | 'about'
   | 'legal' | 'applock' | 'expired' | 'onboarding' | 'compose' | 'sessions'
+  | 'analytics'
 
 interface AppState {
   // navigation
@@ -53,6 +54,16 @@ interface AppState {
   // onboarding (first-run)
   hasSeenOnboarding: boolean
   setHasSeenOnboarding: (v: boolean) => void
+
+  // command palette + shortcuts help (driven by useKeyboardShortcuts)
+  commandPaletteOpen: boolean
+  setCommandPaletteOpen: (v: boolean) => void
+  shortcutsDialogOpen: boolean
+  setShortcutsDialogOpen: (v: boolean) => void
+
+  // keyboard-driven message selection (j/k navigation in Messages section)
+  selectedMessageId: string | null
+  setSelectedMessageId: (id: string | null) => void
 }
 
 const LS = {
@@ -78,7 +89,7 @@ export const useAppStore = create<AppState>((set) => ({
   setDrawerOpen: (v) => set({ drawerOpen: v }),
 
   activeInboxId: null,
-  setActiveInboxId: (id) => set({ activeInboxId: id, openMessageId: null, messages: [] }),
+  setActiveInboxId: (id) => set({ activeInboxId: id, openMessageId: null, messages: [], selectedMessageId: null }),
 
   inboxes: [],
   setInboxes: (list) => set({ inboxes: list }),
@@ -115,6 +126,7 @@ export const useAppStore = create<AppState>((set) => ({
     set((st) => ({
       messages: st.messages.filter((m) => m.id !== id),
       openMessageId: st.openMessageId === id ? null : st.openMessageId,
+      selectedMessageId: st.selectedMessageId === id ? null : st.selectedMessageId,
     })),
 
   openMessageId: null,
@@ -131,6 +143,14 @@ export const useAppStore = create<AppState>((set) => ({
 
   hasSeenOnboarding: false,
   setHasSeenOnboarding: (v) => { writeLS(LS.onboarding, v); set({ hasSeenOnboarding: v }) },
+
+  commandPaletteOpen: false,
+  setCommandPaletteOpen: (v) => set({ commandPaletteOpen: v }),
+  shortcutsDialogOpen: false,
+  setShortcutsDialogOpen: (v) => set({ shortcutsDialogOpen: v }),
+
+  selectedMessageId: null,
+  setSelectedMessageId: (id) => set({ selectedMessageId: id }),
 }))
 
 // Hydrate persisted UI flags on the client after mount (avoids SSR hydration mismatch).

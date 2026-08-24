@@ -1,0 +1,689 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useState, useEffect, useMemo } from 'react'
+     4→     4→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+     5→     5→import { motion, AnimatePresence } from 'framer-motion'
+     6→     6→import {
+     7→     7→  Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
+     8→     8→  Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
+     9→     9→  CheckCheck, Ban, AlertTriangle, Clock,
+    10→    10→} from 'lucide-react'
+    11→    11→import { api } from '@/lib/api-client'
+    12→    12→import { useAppStore } from '@/lib/store'
+    13→    13→import type { MessageSummary, MessageFull } from '@/lib/types'
+    14→    14→import { toast } from 'sonner'
+    15→    15→import { Button } from '@/components/ui/button'
+    16→    16→import { Input } from '@/components/ui/input'
+    17→    17→import { Badge } from '@/components/ui/badge'
+    18→    18→import { Skeleton } from '@/components/ui/skeleton'
+    19→    19→import { ScrollArea } from '@/components/ui/scroll-area'
+    20→    20→import {
+    21→    21→  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+    22→    22→} from '@/components/ui/dropdown-menu'
+    23→    23→import {
+    24→    24→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+    25→    25→} from '@/components/ui/dialog'
+    26→    26→import { cn } from '@/lib/utils'
+    27→    27→
+    28→    28→const CATEGORY_META: Record<string, { label: string; color: string }> = {
+    29→    29→  otp: { label: 'OTP', color: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20' },
+    30→    30→  registration: { label: 'Registration', color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
+    31→    31→  newsletter: { label: 'Newsletter', color: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20' },
+    32→    32→  social: { label: 'Social', color: 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20' },
+    33→    33→  shopping: { label: 'Shopping', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
+    34→    34→  security: { label: 'Security', color: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' },
+    35→    35→  general: { label: 'General', color: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20' },
+    36→    36→}
+    37→    37→
+    38→    38→function sanitizeHtml(html: string): string {
+    39→    39→  if (!html) return '<p style="color:#999;font-family:Arial">(empty body)</p>'
+    40→    40→  let out = html
+    41→    41→  out = out.replace(/<script[\s\S]*?<\/script>/gi, '')
+    42→    42→  out = out.replace(/<style[\s\S]*?<\/style>/gi, '')
+    43→    43→  out = out.replace(/\son\w+="[^"]*"/gi, '')
+    44→    44→  out = out.replace(/\son\w+='[^']*'/gi, '')
+    45→    45→  out = out.replace(/javascript:/gi, '')
+    46→    46→  out = out.replace(/(<img[^>]+)src=["']https?:\/\/[^"']*["']/gi, '$1data-src-blocked="true"')
+    47→    47→  out = out.replace(/<link[^>]+href=["']https?:\/\/[^"']*["'][^>]*>/gi, '')
+    48→    48→  out = out.replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    49→    49→  return `<base target="_blank"><style>body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;background:#fff;line-height:1.6;margin:0;padding:12px}a{color:#0ea5e9}img{max-width:100%;height:auto}</style>${out}`
+    50→    50→}
+    51→    51→
+    52→    52→function formatTime(iso: string): string {
+    53→    53→  const d = new Date(iso)
+    54→    54→  const now = new Date()
+    55→    55→  const diff = now.getTime() - d.getTime()
+    56→    56→  if (diff < 60_000) return 'just now'
+    57→    57→  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+    58→    58→  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    59→    59→  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    60→    60→}
+    61→    61→
+    62→    62→export function MessagesSection({ triggerGenerate: _triggerGenerate }: { triggerGenerate: (email: string) => void }) {
+    63→    63→  const activeInboxId = useAppStore((s) => s.activeInboxId)
+    64→    64→  const inboxes = useAppStore((s) => s.inboxes)
+    65→    65→  const messages = useAppStore((s) => s.messages)
+    66→    66→  const setMessages = useAppStore((s) => s.setMessages)
+    67→    67→  const updateMessage = useAppStore((s) => s.updateMessage)
+    68→    68→  const removeMessage = useAppStore((s) => s.removeMessage)
+    69→    69→  const openMessageId = useAppStore((s) => s.openMessageId)
+    70→    70→  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+    71→    71→  const freshMessageId = useAppStore((s) => s.freshMessageId)
+    72→    72→  const queryClient = useQueryClient()
+    73→    73→
+    74→    74→  const activeInbox = inboxes.find((i) => i.id === activeInboxId)
+    75→    75→  const [query, setQuery] = useState('')
+    76→    76→  const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+    77→    77→
+    78→    78→  const { data: msgData, isFetching, refetch } = useQuery({
+    79→    79→    queryKey: ['messages', activeInboxId],
+    80→    80→    queryFn: () => api.listMessages(activeInboxId!),
+    81→    81→    enabled: !!activeInboxId,
+    82→    82→    refetchInterval: 30_000,
+    83→    83→  })
+    84→    84→
+    85→    85→  useEffect(() => {
+    86→    86→    if (msgData?.messages) {
+    87→    87→      setMessages(msgData.messages)
+    88→    88→    }
+    89→    89→  }, [msgData, setMessages])
+    90→    90→
+    91→    91→  const filtered = messages.filter((m) => {
+    92→    92→    if (filter === 'unread' && m.isRead) return false
+    93→    93→    if (filter === 'starred' && !m.isStarred) return false
+    94→    94→    if (query) {
+    95→    95→      const q = query.toLowerCase()
+    96→    96→      return (
+    97→    97→        m.subject.toLowerCase().includes(q) ||
+    98→    98→        m.fromName.toLowerCase().includes(q) ||
+    99→    99→        m.fromEmail.toLowerCase().includes(q) ||
+   100→   100→        m.previewText.toLowerCase().includes(q)
+   101→   101→      )
+   102→   102→    }
+   103→   103→    return true
+   104→   104→  })
+   105→   105→
+   106→   106→  const updateMutation = useMutation({
+   107→   107→    mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
+   108→   108→      api.updateMessage(id, data),
+   109→   109→    onSuccess: (_d, vars) => {
+   110→   110→      updateMessage(vars.id, vars.data)
+   111→   111→      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   112→   112→    },
+   113→   113→  })
+   114→   114→
+   115→   115→  const deleteMutation = useMutation({
+   116→   116→    mutationFn: (id: string) => api.deleteMessage(id),
+   117→   117→    onSuccess: (_d, id) => {
+   118→   118→      removeMessage(id)
+   119→   119→      setOpenMessageId(null)
+   120→   120→      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   121→   121→      toast.success('Message deleted')
+   122→   122→    },
+   123→   123→  })
+   124→   124→
+   125→   125→  const reportMutation = useMutation({
+   126→   126→    mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
+   127→   127→      api.reportMessage(id, reason, category),
+   128→   128→    onSuccess: () => {
+   129→   129→      toast.success('Message reported. Our team will review it.')
+   130→   130→      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   131→   131→    },
+   132→   132→  })
+   133→   133→
+   134→   134→  if (!activeInbox) {
+   135→   135→    return (
+   136→   136→      <EmptyState
+   137→   137→        icon={<InboxIcon className="h-8 w-8" />}
+   138→   138→        title="No active inbox"
+   139→   139→        description="Generate an inbox on the Inbox tab to start receiving messages."
+   140→   140→      />
+   141→   141→    )
+   142→   142→  }
+   143→   143→
+   144→   144→  const openMsg = openMessageId ? messages.find((m) => m.id === openMessageId) : null
+   145→   145→
+   146→   146→  return (
+   147→   147→    <div className="space-y-4">
+   148→   148→      {/* Header / toolbar */}
+   149→   149→      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+   150→   150→        <div className="flex-1 min-w-0">
+   151→   151→          <h1 className="text-xl font-bold flex items-center gap-2">
+   152→   152→            <Mail className="h-5 w-5 text-emerald-500" /> Messages
+   153→   153→          </h1>
+   154→   154→          <p className="mt-0.5 text-sm text-muted-foreground font-mono truncate">{activeInbox.email}</p>
+   155→   155→        </div>
+   156→   156→        <div className="flex items-center gap-2">
+   157→   157→          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-1.5">
+   158→   158→            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} /> Refresh
+   159→   159→          </Button>
+   160→   160→          <DropdownMenu>
+   161→   161→            <DropdownMenuTrigger asChild>
+   162→   162→              <Button size="sm" variant="ghost" className="gap-1.5 capitalize">
+   163→   163→                {filter}
+   164→   164→              </Button>
+   165→   165→            </DropdownMenuTrigger>
+   166→   166→            <DropdownMenuContent align="end">
+   167→   167→              <DropdownMenuItem onClick={() => setFilter('all')}>All messages</DropdownMenuItem>
+   168→   168→              <DropdownMenuItem onClick={() => setFilter('unread')}>Unread only</DropdownMenuItem>
+   169→   169→              <DropdownMenuItem onClick={() => setFilter('starred')}>Starred only</DropdownMenuItem>
+   170→   170→            </DropdownMenuContent>
+   171→   171→          </DropdownMenu>
+   172→   172→        </div>
+   173→   173→      </div>
+   174→   174→
+   175→   175→      {/* Search */}
+   176→   176→      <div className="relative">
+   177→   177→        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   178→   178→        <Input
+   179→   179→          value={query}
+   180→   180→          onChange={(e) => setQuery(e.target.value)}
+   181→   181→          placeholder="Search subject, sender, or content..."
+   182→   182→          className="pl-9"
+   183→   183→        />
+   184→   184→        {query && (
+   185→   185→          <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+   186→   186→            <X className="h-4 w-4" />
+   187→   187→          </button>
+   188→   188→        )}
+   189→   189→      </div>
+   190→   190→
+   191→   191→      {/* Message list + reader (split view on desktop, stacked on mobile) */}
+   192→   192→      <div className="grid lg:grid-cols-[1fr_1.4fr] gap-4">
+   193→   193→        {/* List */}
+   194→   194→        <div className="rounded-xl border border-border/60 bg-card overflow-hidden order-1">
+   195→   195→          <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
+   196→   196→            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+   197→   197→              {filtered.length} {filtered.length === 1 ? 'message' : 'messages'}
+   198→   198→            </span>
+   199→   199→            {messages.filter((m) => !m.isRead).length > 0 && (
+   200→   200→              <Button
+   201→   201→                size="sm"
+   202→   202→                variant="ghost"
+   203→   203→                className="h-7 text-xs gap-1"
+   204→   204→                onClick={() => {
+   205→   205→                  messages.filter((m) => !m.isRead).forEach((m) =>
+   206→   206→                    updateMutation.mutate({ id: m.id, data: { isRead: true } })
+   207→   207→                  )
+   208→   208→                }}
+   209→   209→              >
+   210→   210→                <CheckCheck className="h-3 w-3" /> Mark all read
+   211→   211→              </Button>
+   212→   212→            )}
+   213→   213→          </div>
+   214→   214→          <ScrollArea className="h-[55vh] lg:h-[65vh] scrollbar-thin">
+   215→   215→            {isFetching && messages.length === 0 ? (
+   216→   216→              <div className="p-3 space-y-2">
+   217→   217→                {[0, 1, 2, 3].map((i) => (
+   218→   218→                  <div key={i} className="rounded-lg p-3 border border-border/40">
+   219→   219→                    <div className="flex gap-3">
+   220→   220→                      <Skeleton className="h-10 w-10 rounded-full" />
+   221→   221→                      <div className="flex-1 space-y-2">
+   222→   222→                        <Skeleton className="h-3 w-2/3" />
+   223→   223→                        <Skeleton className="h-3 w-1/2" />
+   224→   224→                        <Skeleton className="h-2 w-full" />
+   225→   225→                      </div>
+   226→   226→                    </div>
+   227→   227→                  </div>
+   228→   228→                ))}
+   229→   229→              </div>
+   230→   230→            ) : filtered.length === 0 ? (
+   231→   231→              <EmptyState
+   232→   232→                icon={<Mail className="h-7 w-7" />}
+   233→   233→                title={query || filter !== 'all' ? 'No matching messages' : 'No messages yet'}
+   234→   234→                description={
+   235→   235→                  query || filter !== 'all'
+   236→   236→                    ? 'Try a different search or filter.'
+   237→   237→                    : 'New messages will appear here in real time as they arrive.'
+   238→   238→                }
+   239→   239→                compact
+   240→   240→              />
+   241→   241→            ) : (
+   242→   242→              <ul className="divide-y divide-border/40">
+   243→   243→                <AnimatePresence initial={false}>
+   244→   244→                  {filtered.map((msg) => (
+   245→   245→                    <MessageListItem
+   246→   246→                      key={msg.id}
+   247→   247→                      msg={msg}
+   248→   248→                      active={openMessageId === msg.id}
+   249→   249→                      fresh={freshMessageId === msg.id}
+   250→   250→                      onOpen={() => setOpenMessageId(msg.id)}
+   251→   251→                      onToggleRead={() => updateMutation.mutate({ id: msg.id, data: { isRead: !msg.isRead } })}
+   252→   252→                      onToggleStar={() => updateMutation.mutate({ id: msg.id, data: { isStarred: !msg.isStarred } })}
+   253→   253→                      onDelete={() => deleteMutation.mutate(msg.id)}
+   254→   254→                      onReport={(reason, category) => reportMutation.mutate({ id: msg.id, reason, category })}
+   255→   255→                    />
+   256→   256→                  ))}
+   257→   257→                </AnimatePresence>
+   258→   258→              </ul>
+   259→   259→            )}
+   260→   260→          </ScrollArea>
+   261→   261→        </div>
+   262→   262→
+   263→   263→        {/* Reader */}
+   264→   264→        <div className="rounded-xl border border-border/60 bg-card overflow-hidden min-h-[55vh] lg:min-h-[65vh] order-2">
+   265→   265→          <AnimatePresence mode="wait">
+   266→   266→            {openMsg ? (
+   267→   267→              <MessageReader
+   268→   268→                key={openMsg.id}
+   269→   269→                messageSummary={openMsg}
+   270→   270→                onBack={() => setOpenMessageId(null)}
+   271→   271→                onDelete={() => deleteMutation.mutate(openMsg.id)}
+   272→   272→                onToggleStar={() => updateMutation.mutate({ id: openMsg.id, data: { isStarred: !openMsg.isStarred } })}
+   273→   273→                onReport={(reason, category) => reportMutation.mutate({ id: openMsg.id, reason, category })}
+   274→   274→              />
+   275→   275→            ) : (
+   276→   276→              <motion.div
+   277→   277→                key="empty"
+   278→   278→                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+   279→   279→                className="grid place-items-center h-full min-h-[55vh] p-8"
+   280→   280→              >
+   281→   281→                <div className="text-center max-w-sm">
+   282→   282→                  <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+   283→   283→                    <MailOpen className="h-8 w-8" />
+   284→   284→                  </div>
+   285→   285→                  <h3 className="font-semibold">Select a message</h3>
+   286→   286→                  <p className="mt-1 text-sm text-muted-foreground">
+   287→   287→                    Tap any message on the left to read it here. Messages render with external resources blocked for your safety.
+   288→   288→                  </p>
+   289→   289→                </div>
+   290→   290→              </motion.div>
+   291→   291→            )}
+   292→   292→          </AnimatePresence>
+   293→   293→        </div>
+   294→   294→      </div>
+   295→   295→    </div>
+   296→   296→  )
+   297→   297→}
+   298→   298→
+   299→   299→// ---------------- Message List Item ----------------
+   300→   300→function MessageListItem({
+   301→   301→  msg, active, fresh, onOpen, onToggleRead, onToggleStar, onDelete, onReport,
+   302→   302→}: {
+   303→   303→  msg: MessageSummary
+   304→   304→  active: boolean
+   305→   305→  fresh: boolean
+   306→   306→  onOpen: () => void
+   307→   307→  onToggleRead: () => void
+   308→   308→  onToggleStar: () => void
+   309→   309→  onDelete: () => void
+   310→   310→  onReport: (reason: string, category: string) => void
+   311→   311→}) {
+   312→   312→  const cat = CATEGORY_META[msg.category] || CATEGORY_META.general
+   313→   313→  const hasAuthIssue = msg.spf !== 'pass' || msg.dkim !== 'pass' || msg.dmarc !== 'pass'
+   314→   314→
+   315→   315→  return (
+   316→   316→    <motion.li
+   317→   317→      layout
+   318→   318→      initial={fresh ? { opacity: 0, y: -16 } : false}
+   319→   319→      animate={{ opacity: 1, y: 0 }}
+   320→   320→      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+   321→   321→      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+   322→   322→      className={cn(
+   323→   323→        'relative group cursor-pointer transition-colors',
+   324→   324→        active ? 'bg-accent/60' : 'hover:bg-accent/30',
+   325→   325→        fresh && 'bg-emerald-500/5'
+   326→   326→      )}
+   327→   327→    >
+   328→   328→      <button onClick={onOpen} className="w-full text-left p-3 flex gap-3">
+   329→   329→        <div className="relative shrink-0">
+   330→   330→          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+   331→   331→            {msg.fromName[0]?.toUpperCase() || '?'}
+   332→   332→          </div>
+   333→   333→          {!msg.isRead && (
+   334→   334→            <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+   335→   335→          )}
+   336→   336→        </div>
+   337→   337→        <div className="flex-1 min-w-0">
+   338→   338→          <div className="flex items-center justify-between gap-2">
+   339→   339→            <span className={cn('text-sm truncate', msg.isRead ? 'font-medium text-foreground' : 'font-bold text-foreground')}>
+   340→   340→              {msg.fromName}
+   341→   341→            </span>
+   342→   342→            <span className="text-[11px] text-muted-foreground shrink-0">
+   343→   343→              {formatTime(msg.receivedAt)}
+   344→   344→            </span>
+   345→   345→          </div>
+   346→   346→          <div className="mt-0.5 flex items-center gap-1.5">
+   347→   347→            <span className={cn('text-sm truncate flex-1', msg.isRead ? 'text-foreground/80' : 'text-foreground font-semibold')}>
+   348→   348→              {msg.subject}
+   349→   349→            </span>
+   350→   350→            {msg.isStarred && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" />}
+   351→   351→            {msg.hasAttachment && <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+   352→   352→            {hasAuthIssue && <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+   353→   353→          </div>
+   354→   354→          <p className="mt-0.5 text-xs text-muted-foreground truncate">{msg.previewText}</p>
+   355→   355→          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+   356→   356→            <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-4', cat.color)}>{cat.label}</Badge>
+   357→   357→            {msg.scanStatus === 'quarantined' && (
+   358→   358→              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-red-500/10 text-red-600 border-red-500/20">
+   359→   359→                <Ban className="h-2.5 w-2.5 mr-0.5" /> Quarantined
+   360→   360→              </Badge>
+   361→   361→            )}
+   362→   362→            {msg.externalResourcesBlocked > 0 && (
+   363→   363→              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">
+   364→   364→                <Ban className="h-2.5 w-2.5 mr-0.5" /> {msg.externalResourcesBlocked} blocked
+   365→   365→              </Badge>
+   366→   366→            )}
+   367→   367→          </div>
+   368→   368→        </div>
+   369→   369→      </button>
+   370→   370→
+   371→   371→      {/* Hover quick actions */}
+   372→   372→      <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-0.5 bg-background/90 backdrop-blur rounded-lg border border-border/60 p-0.5 shadow-sm">
+   373→   373→        <button onClick={(e) => { e.stopPropagation(); onToggleStar() }} title={msg.isStarred ? 'Unstar' : 'Star'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+   374→   374→          <Star className={cn('h-3.5 w-3.5', msg.isStarred && 'text-amber-500 fill-amber-500')} />
+   375→   375→        </button>
+   376→   376→        <button onClick={(e) => { e.stopPropagation(); onToggleRead() }} title={msg.isRead ? 'Mark unread' : 'Mark read'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+   377→   377→          {msg.isRead ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+   378→   378→        </button>
+   379→   379→        <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete" className="grid h-7 w-7 place-items-center rounded hover:bg-red-500/10 text-red-500">
+   380→   380→          <Trash2 className="h-3.5 w-3.5" />
+   381→   381→        </button>
+   382→   382→        <DropdownMenu>
+   383→   383→          <DropdownMenuTrigger asChild>
+   384→   384→            <button onClick={(e) => e.stopPropagation()} title="More" className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+   385→   385→              <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+   386→   386→            </button>
+   387→   387→          </DropdownMenuTrigger>
+   388→   388→          <DropdownMenuContent align="end">
+   389→   389→            <DropdownMenuItem onClick={() => onReport('Spam or promotional abuse', 'spam')} className="gap-2 text-red-600">
+   390→   390→              <Flag className="h-3.5 w-3.5" /> Report as spam
+   391→   391→            </DropdownMenuItem>
+   392→   392→            <DropdownMenuItem onClick={() => onReport('Phishing or fraud attempt', 'phishing')} className="gap-2 text-red-600">
+   393→   393→              <Flag className="h-3.5 w-3.5" /> Report phishing
+   394→   394→            </DropdownMenuItem>
+   395→   395→            <DropdownMenuSeparator />
+   396→   396→            <DropdownMenuItem onClick={() => onReport('Other', 'other')} className="gap-2 text-red-600">
+   397→   397→              <Flag className="h-3.5 w-3.5" /> Report (other)
+   398→   398→            </DropdownMenuItem>
+   399→   399→          </DropdownMenuContent>
+   400→   400→        </DropdownMenu>
+   401→   401→      </div>
+   402→   402→    </motion.li>
+   403→   403→  )
+   404→   404→}
+   405→   405→
+   406→   406→// ---------------- Message Reader ----------------
+   407→   407→function MessageReader({
+   408→   408→  messageSummary, onBack, onDelete, onToggleStar, onReport,
+   409→   409→}: {
+   410→   410→  messageSummary: MessageSummary
+   411→   411→  onBack: () => void
+   412→   412→  onDelete: () => void
+   413→   413→  onToggleStar: () => void
+   414→   414→  onReport: (reason: string, category: string) => void
+   415→   415→}) {
+   416→   416→  const [full, setFull] = useState<MessageFull | null>(null)
+   417→   417→  const [loading, setLoading] = useState(true)
+   418→   418→  const [showRaw, setShowRaw] = useState(false)
+   419→   419→  const [showAuth, setShowAuth] = useState(false)
+   420→   420→  const [showReport, setShowReport] = useState(false)
+   421→   421→  const [imagesLoaded, setImagesLoaded] = useState(false)
+   422→   422→
+   423→   423→  useEffect(() => {
+   424→   424→    let active = true
+   425→   425→    setLoading(true)
+   426→   426→    setFull(null)
+   427→   427→    setImagesLoaded(false)
+   428→   428→    api.getMessage(messageSummary.id).then((data) => {
+   429→   429→      if (active) {
+   430→   430→        setFull(data.message)
+   431→   431→        setLoading(false)
+   432→   432→      }
+   433→   433→    }).catch(() => setLoading(false))
+   434→   434→    return () => { active = false }
+   435→   435→  }, [messageSummary.id])
+   436→   436→
+   437→   437→  const cat = CATEGORY_META[messageSummary.category] || CATEGORY_META.general
+   438→   438→  const authFail = messageSummary.spf !== 'pass' || messageSummary.dkim !== 'pass' || messageSummary.dmarc !== 'pass'
+   439→   439→  const spoofed = messageSummary.fromName !== messageSummary.fromEmail &&
+   440→   440→    /paypal|bank|secure|verify|official|government/i.test(messageSummary.fromName)
+   441→   441→
+   442→   442→  const sanitizedHtml = useMemo(() => {
+   443→   443→    if (!full?.bodyHtml) return ''
+   444→   444→    let out = full.bodyHtml
+   445→   445→    if (imagesLoaded) {
+   446→   446→      // restore blocked image srcs
+   447→   447→      out = out.replace(/(<img[^>]+)data-src-blocked=["']true["']/gi, '$1')
+   448→   448→    } else {
+   449→   449→      out = out.replace(/(<img[^>]+)src=["']https?:\/\/[^"']*["']/gi, '$1data-src-blocked="true"')
+   450→   450→    }
+   451→   451→    return sanitizeHtml(out)
+   452→   452→  }, [full?.bodyHtml, imagesLoaded])
+   453→   453→
+   454→   454→  return (
+   455→   455→    <motion.div
+   456→   456→      initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
+   457→   457→      transition={{ duration: 0.2 }}
+   458→   458→      className="flex flex-col h-full min-h-[55vh] lg:min-h-[65vh]"
+   459→   459→    >
+   460→   460→      {/* Reader header */}
+   461→   461→      <div className="border-b border-border/60 p-4 space-y-3">
+   462→   462→        <div className="flex items-center gap-2">
+   463→   463→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-1 lg:hidden">
+   464→   464→            <ArrowLeft className="h-4 w-4" /> Back
+   465→   465→          </Button>
+   466→   466→          <div className="flex-1" />
+   467→   467→          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleStar} title={messageSummary.isStarred ? 'Unstar' : 'Star'}>
+   468→   468→            <Star className={cn('h-4 w-4', messageSummary.isStarred && 'text-amber-500 fill-amber-500')} />
+   469→   469→          </Button>
+   470→   470→          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-500/10" onClick={onDelete} title="Delete">
+   471→   471→            <Trash2 className="h-4 w-4" />
+   472→   472→          </Button>
+   473→   473→          <DropdownMenu>
+   474→   474→            <DropdownMenuTrigger asChild>
+   475→   475→              <Button variant="ghost" size="icon" className="h-8 w-8" title="More">
+   476→   476→                <ChevronRight className="h-4 w-4 rotate-90" />
+   477→   477→              </Button>
+   478→   478→            </DropdownMenuTrigger>
+   479→   479→            <DropdownMenuContent align="end">
+   480→   480→              <DropdownMenuItem onClick={() => setShowAuth(!showAuth)} className="gap-2">
+   481→   481→                <ShieldCheck className="h-3.5 w-3.5" /> {showAuth ? 'Hide' : 'Show'} security panel
+   482→   482→              </DropdownMenuItem>
+   483→   483→              <DropdownMenuItem onClick={() => setShowRaw(!showRaw)} className="gap-2">
+   484→   484→                <Mail className="h-3.5 w-3.5" /> {showRaw ? 'HTML view' : 'Plain text view'}
+   485→   485→              </DropdownMenuItem>
+   486→   486→              <DropdownMenuSeparator />
+   487→   487→              <DropdownMenuItem onClick={() => setShowReport(true)} className="gap-2 text-red-600">
+   488→   488→                <Flag className="h-3.5 w-3.5" /> Report this message
+   489→   489→              </DropdownMenuItem>
+   490→   490→            </DropdownMenuContent>
+   491→   491→          </DropdownMenu>
+   492→   492→        </div>
+   493→   493→
+   494→   494→        <h2 className="text-lg font-bold leading-tight">{messageSummary.subject}</h2>
+   495→   495→
+   496→   496→        <div className="flex items-start gap-3">
+   497→   497→          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+   498→   498→            {messageSummary.fromName[0]?.toUpperCase() || '?'}
+   499→   499→          </div>
+   500→   500→          <div className="flex-1 min-w-0">
+   501→   501→            <div className="flex items-center gap-2 flex-wrap">
+   502→   502→              <span className="font-semibold text-sm">{messageSummary.fromName}</span>
+   503→   503→              {spoofed && (
+   504→   504→                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+   505→   505→                  <AlertTriangle className="h-2.5 w-2.5" /> Display name looks suspicious
+   506→   506→                </Badge>
+   507→   507→              )}
+   508→   508→              <Badge variant="outline" className={cn('text-[10px]', cat.color)}>{cat.label}</Badge>
+   509→   509→            </div>
+   510→   510→            <p className="mt-0.5 text-xs text-muted-foreground font-mono break-all">&lt;{messageSummary.fromEmail}&gt;</p>
+   511→   511→            <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
+   512→   512→              <Clock className="h-3 w-3" /> {new Date(messageSummary.receivedAt).toLocaleString()}
+   513→   513→            </p>
+   514→   514→          </div>
+   515→   515→        </div>
+   516→   516→
+   517→   517→        {/* Auth panel */}
+   518→   518→        <AnimatePresence>
+   519→   519→          {showAuth && (
+   520→   520→            <motion.div
+   521→   521→              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+   522→   522→              className="overflow-hidden"
+   523→   523→            >
+   524→   524→              <div className="grid grid-cols-3 gap-2 pt-2">
+   525→   525→                <AuthChip label="SPF" value={messageSummary.spf} />
+   526→   526→                <AuthChip label="DKIM" value={messageSummary.dkim} />
+   527→   527→                <AuthChip label="DMARC" value={messageSummary.dmarc} />
+   528→   528→              </div>
+   529→   529→              {authFail && (
+   530→   530→                <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300 flex gap-2">
+   531→   531→                  <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+   532→   532→                  <span>One or more authentication checks failed. Be cautious — the sender's identity could not be fully verified.</span>
+   533→   533→                </div>
+   534→   534→              )}
+   535→   535→            </motion.div>
+   536→   536→          )}
+   537→   537→        </AnimatePresence>
+   538→   538→
+   539→   539→        {/* Attachments */}
+   540→   540→        {full && full.attachments && full.attachments.length > 0 && (
+   541→   541→          <div className="flex flex-wrap gap-2 pt-1">
+   542→   542→            {full.attachments.map((a, i) => (
+   543→   543→              <div key={i} className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 text-xs">
+   544→   544→                <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+   545→   545→                <span className="font-medium">{a.name}</span>
+   546→   546→                <span className="text-muted-foreground">{(a.size / 1024).toFixed(0)} KB</span>
+   547→   547→              </div>
+   548→   548→            ))}
+   549→   549→          </div>
+   550→   550→        )}
+   551→   551→      </div>
+   552→   552→
+   553→   553→      {/* External resources blocked banner */}
+   554→   554→      {messageSummary.externalResourcesBlocked > 0 && !imagesLoaded && (
+   555→   555→        <motion.div
+   556→   556→          initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+   557→   557→          className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300"
+   558→   558→        >
+   559→   559→          <Ban className="h-4 w-4 shrink-0" />
+   560→   560→          <span className="flex-1">{messageSummary.externalResourcesBlocked} external resource{messageSummary.externalResourcesBlocked !== 1 ? 's' : ''} blocked for your safety.</span>
+   561→   561→          <button
+   562→   562→            onClick={() => setImagesLoaded(true)}
+   563→   563→            className="font-medium underline-offset-2 hover:underline"
+   564→   564→          >
+   565→   565→            Load anyway
+   566→   566→          </button>
+   567→   567→        </motion.div>
+   568→   568→      )}
+   569→   569→
+   570→   570→      {/* Body */}
+   571→   571→      <ScrollArea className="flex-1 scrollbar-thin">
+   572→   572→        <div className="p-4">
+   573→   573→          {loading ? (
+   574→   574→            <div className="space-y-3">
+   575→   575→              <Skeleton className="h-4 w-3/4" />
+   576→   576→              <Skeleton className="h-4 w-full" />
+   577→   577→              <Skeleton className="h-4 w-5/6" />
+   578→   578→              <Skeleton className="h-24 w-full" />
+   579→   579→              <Skeleton className="h-4 w-2/3" />
+   580→   580→            </div>
+   581→   581→          ) : showRaw ? (
+   582→   582→            <pre className="whitespace-pre-wrap break-words text-sm font-mono text-foreground/80">
+   583→   583→              {full?.bodyText}
+   584→   584→            </pre>
+   585→   585→          ) : (
+   586→   586→            <motion.div
+   587→   587→              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+   588→   588→              transition={{ duration: 0.25 }}
+   589→   589→            >
+   590→   590→              <iframe
+   591→   591→                title="message body"
+   592→   592→                srcDoc={sanitizedHtml}
+   593→   593→                className="w-full min-h-[300px] border-0"
+   594→   594→                sandbox="allow-same-origin"
+   595→   595→              />
+   596→   596→            </motion.div>
+   597→   597→          )}
+   598→   598→        </div>
+   599→   599→      </ScrollArea>
+   600→   600→
+   601→   601→      {/* Report dialog */}
+   602→   602→      <Dialog open={showReport} onOpenChange={setShowReport}>
+   603→   603→        <DialogContent className="sm:max-w-md">
+   604→   604→          <DialogHeader>
+   605→   605→            <DialogTitle className="flex items-center gap-2"><Flag className="h-4 w-4 text-red-500" /> Report this message</DialogTitle>
+   606→   606→            <DialogDescription>
+   607→   607→              Flag this message for review. The sender is not notified.
+   608→   608→            </DialogDescription>
+   609→   609→          </DialogHeader>
+   610→   610→          <ReportForm onSubmit={(reason, category) => { onReport(reason, category); setShowReport(false) }} />
+   611→   611→        </DialogContent>
+   612→   612→      </Dialog>
+   613→   613→    </motion.div>
+   614→   614→  )
+   615→   615→}
+   616→   616→
+   617→   617→function ReportForm({ onSubmit }: { onSubmit: (reason: string, category: string) => void }) {
+   618→   618→  const [category, setCategory] = useState('spam')
+   619→   619→  const [reason, setReason] = useState('')
+   620→   620→  return (
+   621→   621→    <div className="space-y-4 py-2">
+   622→   622→      <div className="grid grid-cols-2 gap-2">
+   623→   623→        {[
+   624→   624→          { v: 'spam', l: 'Spam / Promo' },
+   625→   625→          { v: 'phishing', l: 'Phishing / Fraud' },
+   626→   626→          { v: 'abuse', l: 'Abuse / Harassment' },
+   627→   627→          { v: 'other', l: 'Other' },
+   628→   628→        ].map((o) => (
+   629→   629→          <button
+   630→   630→            key={o.v}
+   631→   631→            onClick={() => setCategory(o.v)}
+   632→   632→            className={cn(
+   633→   633→              'rounded-lg border px-3 py-2 text-sm font-medium transition-colors text-left',
+   634→   634→              category === o.v ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-accent'
+   635→   635→            )}
+   636→   636→          >
+   637→   637→            {o.l}
+   638→   638→          </button>
+   639→   639→        ))}
+   640→   640→      </div>
+   641→   641→      <textarea
+   642→   642→        value={reason}
+   643→   643→        onChange={(e) => setReason(e.target.value)}
+   644→   644→        placeholder="Add details (optional)..."
+   645→   645→        className="w-full min-h-[80px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+   646→   646→      />
+   647→   647→      <DialogFooter>
+   648→   648→        <Button onClick={() => onSubmit(reason, category)} className="gap-2">
+   649→   649→          <Flag className="h-4 w-4" /> Submit report
+   650→   650→        </Button>
+   651→   651→      </DialogFooter>
+   652→   652→    </div>
+   653→   653→  )
+   654→   654→}
+   655→   655→
+   656→   656→function AuthChip({ label, value }: { label: string; value: string }) {
+   657→   657→  const pass = value === 'pass'
+   658→   658→  const warn = value === 'softfail' || value === 'none'
+   659→   659→  return (
+   660→   660→    <div className={cn(
+   661→   661→      'rounded-lg border p-2 text-center',
+   662→   662→      pass && 'bg-emerald-500/10 border-emerald-500/20',
+   663→   663→      warn && 'bg-amber-500/10 border-amber-500/20',
+   664→   664→      !pass && !warn && 'bg-red-500/10 border-red-500/20',
+   665→   665→    )}>
+   666→   666→      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+   667→   667→      <div className={cn(
+   668→   668→        'text-sm font-bold flex items-center justify-center gap-1',
+   669→   669→        pass && 'text-emerald-600 dark:text-emerald-400',
+   670→   670→        warn && 'text-amber-600 dark:text-amber-400',
+   671→   671→        !pass && !warn && 'text-red-600 dark:text-red-400',
+   672→   672→      )}>
+   673→   673→        {pass ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
+   674→   674→        {value}
+   675→   675→      </div>
+   676→   676→    </div>
+   677→   677→  )
+   678→   678→}
+   679→   679→
+   680→   680→function EmptyState({ icon, title, description, compact }: { icon: React.ReactNode; title: string; description: string; compact?: boolean }) {
+   681→   681→  return (
+   682→   682→    <div className={cn('flex flex-col items-center justify-center text-center', compact ? 'p-8' : 'p-12')}>
+   683→   683→      <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
+   684→   684→      <h3 className="font-semibold">{title}</h3>
+   685→   685→      <p className="mt-1 max-w-xs text-sm text-muted-foreground">{description}</p>
+   686→   686→    </div>
+   687→   687→  )
+   688→   688→}
+   689→   689→

@@ -144,3 +144,53 @@ export interface LegalDoc {
   updated: string
   body: string
 }
+
+// ---------- Analytics ----------
+
+export interface AnalyticsDayPoint {
+  /** ISO date (YYYY-MM-DD) */
+  date: string
+  /** Human label, e.g. "Mon 14" */
+  label: string
+  count: number
+}
+
+export interface AnalyticsCategoryPoint {
+  category: string
+  label: string
+  count: number
+}
+
+export interface AnalyticsSenderPoint {
+  sender: string
+  count: number
+}
+
+export interface AnalyticsAuthBreakdown {
+  pass: number
+  fail: number
+  none: number
+}
+
+export interface AnalyticsAuthRow {
+  spf: AnalyticsAuthBreakdown
+  dkim: AnalyticsAuthBreakdown
+  dmarc: AnalyticsAuthBreakdown
+}
+
+export interface AnalyticsResponse {
+  rangeDays: number
+  generatedAt: string
+  perDay: AnalyticsDayPoint[]
+  byCategory: AnalyticsCategoryPoint[]
+  topSenders: AnalyticsSenderPoint[]
+  auth: AnalyticsAuthRow
+  totalMessages: number
+  totalInboxes: number
+  activeInboxes: number
+  avgMessagesPerInbox: number
+  authPassRate: number // 0..1, share of messages with all of SPF/DKIM/DMARC == pass
+  totalBytes: number
+  avgMessageBytes: number
+  peakHour: { hour: number; count: number } | null
+}
