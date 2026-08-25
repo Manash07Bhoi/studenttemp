@@ -57,8 +57,9 @@ export async function GET(req: NextRequest) {
     _count: true,
   })
 
-  // Storage usage
-  const totalStorageUsed = await db.account.aggregate({ _sum: { storageUsedBytes: true } })
+  // Storage usage — BigInt must be coerced to string before JSON serialization
+  const totalStorageUsedAgg = await db.account.aggregate({ _sum: { storageUsedBytes: true } })
+  const totalStorageUsed = totalStorageUsedAgg._sum.storageUsedBytes || BigInt(0)
 
   return NextResponse.json({
     overview: {
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
       totalAttachments,
       abuseReports,
       domains,
-      totalStorageUsed: totalStorageUsed._sum.storageUsedBytes || 0,
+      totalStorageUsed: totalStorageUsed.toString(),
     },
     accountMode: {
       filters,

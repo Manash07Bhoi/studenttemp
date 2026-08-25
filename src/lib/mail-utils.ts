@@ -156,7 +156,7 @@ export async function getOrCreateSession(req: Request): Promise<{ sessionId: str
       locale: 'en',
     },
   })
-  const setCookie = `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_COOKIE_MAX_AGE}`
+  const setCookie = `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict${shouldSetSecure(req) ? '; Secure' : ''}; Max-Age=${SESSION_COOKIE_MAX_AGE}`
   return { sessionId: session.id, token, setCookie }
 }
 
@@ -170,7 +170,19 @@ export async function getSessionIdFromCookies(): Promise<string | null> {
   return session.id
 }
 
-// ---------- Quotas ----------
+// ---------- HTTPS-aware cookie helpers ----------
+// `Secure` is only set when the request actually arrived over TLS (or in
+// production). When Caddy fronts the dev server, we trust X-Forwarded-Proto
+// coming from the loopback peer (see src/middleware.ts).
+function shouldSetSecure(req?: Request): boolean {
+  if (process.env.NODE_ENV === 'production') return true
+  if (!req) return false
+  const xff = req.headers.get('x-forwarded-for') || ''
+  const peer = xff.split(',').pop()?.trim()
+  const trusted = peer === '127.0.0.1' || peer === '::1' || peer === 'localhost'
+  if (!trusted) return false
+  return req.headers.get('x-forwarded-proto') === 'https'
+}
 export const QUOTAS = {
   MAX_ACTIVE_INBOXES_PER_SESSION: 5,
   MAX_MESSAGES_PER_INBOX: 100,

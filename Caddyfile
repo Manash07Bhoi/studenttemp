@@ -1,4 +1,33 @@
+# ============================================================
+# StudentTemp — Caddy reverse proxy configuration
+# Handles TLS termination, HTTP→HTTPS redirect, and gateway routing.
+# ============================================================
+#
+# This file is the REFERENCE configuration for the project.
+# The actual running config may be at /app/Caddyfile (managed by infra).
+#
+# Caddy automatically provisions and renews certificates via Let's Encrypt
+# in production (when the site is reachable on a real domain).
+#
+# In this sandbox/dev environment we use Caddy's internal CA
+# (`tls internal`) which generates locally-trusted certificates.
+# The Caddy root CA can be installed into the system/browser trust store
+# with `caddy trust` for a green-padlock experience in dev.
+# ------------------------------------------------------------
+
+# --- Dev: port 81 with tls internal ---
 :81 {
+	# Redirect plain-HTTP requests to HTTPS on the same port.
+	@not_https {
+		protocol http
+	}
+	redir @not_https https://{host}:{port}{uri} permanent
+
+	# TLS termination using Caddy's built-in CA (self-signed).
+	# For production, use a real domain block instead (see below).
+	tls internal {}
+
+	# --- Gateway routing ---
 	@transform_port_query {
 		query XTransformPort=*
 	}
@@ -21,3 +50,32 @@
 		}
 	}
 }
+
+# --- Production: replace the :81 block above with: ---
+# https://your-domain.com {
+# 	redir http:// https://{host}{uri} permanent
+#
+# 	@transform_port_query {
+# 		query XTransformPort=*
+# 	}
+#
+# 	handle @transform_port_query {
+# 		reverse_proxy localhost:{query.XTransformPort} {
+# 			header_up Host {host}
+# 			header_up X-Forwarded-For {remote_host}
+# 			header_up X-Forwarded-Proto {scheme}
+# 			header_up X-Real-IP {remote_host}
+# 		}
+# 	}
+#
+# 	handle {
+# 		reverse_proxy localhost:3000 {
+# 			header_up Host {host}
+# 			header_up X-Forwarded-For {remote_host}
+# 			header_up X-Forwarded-Proto {scheme}
+# 			header_up X-Real-IP {remote_host}
+# 		}
+# 	}
+# }
+# Caddy will auto-provision Let's Encrypt certificates.
+# No private keys are stored in the repository.

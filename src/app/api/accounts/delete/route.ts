@@ -60,6 +60,6 @@ export async function POST(req: NextRequest) {
     message: 'Your account will be permanently deleted in 14 days. Sign in before then to cancel.',
     deletionDate: graceEnd,
   })
-  res.headers.set('set-cookie', clearAccountCookie())
+  res.headers.set('set-cookie', clearAccountCookie(req))
   return res
 }

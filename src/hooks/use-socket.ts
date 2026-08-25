@@ -26,8 +26,15 @@ export function useSocket(opts: UseSocketOptions = {}) {
   })
 
   useEffect(() => {
+    // Connect to the Socket.IO gateway on the SAME HTTPS origin as the page.
+    // The query parameter `XTransformPort` tells Caddy which upstream to use.
+    // Because the page is served over HTTPS, socket.io-client will upgrade
+    // to wss:// automatically; we force websocket transport for security.
     const socket = io('/?XTransformPort=3003', {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'],
+      // `secure: true` forces the wss:// scheme even if the page is on
+      // a non-standard port (e.g. https://localhost:81).
+      secure: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
