@@ -1,7 +1,7 @@
 // POST /api/check-alias — check if a custom local-part is available (rate-limited)
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { validateLocalPart, getClientIp, rateLimit } from '@/lib/mail-utils'
+import { validateLocalPart, getClientIp, rateLimit, getSessionId, hashToken } from '@/lib/mail-utils'
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req)
@@ -37,10 +37,16 @@ export async function POST(req: NextRequest) {
     where: { localPart_domainId: { localPart: normalized, domainId: domainRow.id } },
   })
   if (ledger?.cooldownUntil && ledger.cooldownUntil > new Date()) {
-    return NextResponse.json({
-      available: false,
-      reason: `In cooldown until ${ledger.cooldownUntil.toLocaleTimeString()}`,
-    })
+    // GAP L4: Same session can reclaim their own expired alias without cooldown
+    const currentSessionId = await getSessionId(req)
+    if (currentSessionId && ledger.lastUsedBySessionHash === hashToken(currentSessionId)) {
+      // Same session — allow immediate reclaim, skip cooldown
+    } else {
+      return NextResponse.json({
+        available: false,
+        reason: `In cooldown until ${ledger.cooldownUntil.toLocaleTimeString()}`,
+      })
+    }
   }
   return NextResponse.json({ available: true, email: `${normalized}@${domainRow.domain}` })
 }

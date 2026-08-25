@@ -82,6 +82,7 @@ export function AppShell() {
   useServiceWorker()
 
   // Hydrate persisted UI flags from localStorage AFTER mount (avoids SSR hydration mismatch)
+  // Per BUGFIX-INBOX-PERSISTENCE.md: restore, don't recreate
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
@@ -89,11 +90,19 @@ export function AppShell() {
       const onboarding = localStorage.getItem('studenttemp_onboarded') === '1'
       const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr' | 'or') || 'en'
       const pushDismissed = localStorage.getItem('studenttemp_push_dismissed') === '1'
+      // Restore active inbox from localStorage (persists across tab close/reopen)
+      const savedActiveInbox = localStorage.getItem('studenttemp_active_inbox')
+      // Restore inbox mirror for instant UI display
+      const savedMirror = localStorage.getItem('studenttemp_inbox_mirror')
+      const inboxMirror = savedMirror ? JSON.parse(savedMirror) : null
+
       useAppStore.setState({
         appLockEnabled: appLock,
         hasSeenOnboarding: onboarding,
         locale,
         pushPromptDismissed: pushDismissed,
+        activeInboxId: savedActiveInbox || null,
+        inboxMirror,
       })
       document.documentElement.lang = locale
     } catch {}

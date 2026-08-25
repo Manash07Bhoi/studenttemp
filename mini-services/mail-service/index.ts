@@ -222,7 +222,20 @@ async function ingestMessage(opts: {
       authDkim: dkimResult.result,
       authDmarc: dmarcResult.result,
       authDetails: JSON.stringify({ spf: spfResult.details, dkim: dkimResult.details, dmarc: dmarcResult.details }),
-      scanStatus: 'clean', // no ClamAV in dev; prod wires real clamd here
+      // GAP G10: Spam scoring heuristics (rule-based, not fake AI)
+      scanStatus: (() => {
+        let spamScore = 0
+        if (spfResult.result === 'fail' || spfResult.result === 'softfail') spamScore += 3
+        if (dkimResult.result === 'fail' || dkimResult.result === 'none') spamScore += 2
+        if (dmarcResult.result === 'fail' || dmarcResult.result === 'none') spamScore += 2
+        const urgencyKeywords = /verify now|account suspended|urgent|immediate action|confirm your identity|click here to|limited time|act now/i
+        if (urgencyKeywords.test(subject) || urgencyKeywords.test(bodyText)) spamScore += 2
+        const linkCount = (bodyHtml.match(/<a\s/gi) || []).length
+        if (linkCount > 10) spamScore += 2
+        else if (linkCount > 5) spamScore += 1
+        if (spamScore >= 6) return 'quarantined'
+        return 'clean'
+      })(),
       externalResourcesBlocked,
       inbox: { connect: { id: inbox.id } },
     },

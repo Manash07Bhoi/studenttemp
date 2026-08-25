@@ -8,7 +8,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { sessionId } = await getOrCreateSession(req)
   const inbox = await db.inbox.findUnique({ where: { id } })
   if (!inbox || inbox.sessionId !== sessionId) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Not found', code: 'INBOX_NOT_FOUND' }, { status: 404 })
+  }
+  // GAP L1: Inbox expired mid-request — return specific error code (not generic 404/500)
+  if (inbox.status !== 'active' || inbox.expiresAt < new Date()) {
+    return NextResponse.json({ error: 'Inbox expired', code: 'INBOX_EXPIRED' }, { status: 410 })
   }
 
   const messages = await db.message.findMany({

@@ -1948,3 +1948,71 @@ The "Test mail" button sends a REAL email through the SMTP server. This works in
 - The domain `studentbox.in` doesn't have MX records pointing to this server
 - The SMTP server is not publicly accessible on port 25
 - This requires production deployment with real DNS + public IP
+
+---
+Task ID: GAP-ANALYSIS-V2-IMPLEMENTATION
+Agent: main (Z.ai Code)
+Task: Read BUGFIX-INBOX-PERSISTENCE.md + GAP-ANALYSIS-V2.md, implement all gaps.
+
+## BUGFIX-INBOX-PERSISTENCE.md — Implemented
+
+### RC1+RC2 Fixed: Inbox mirror in localStorage (not sessionStorage)
+- Added `inboxMirror` state to Zustand store: `{ id, email, expiresAt }`
+- `setInboxMirror` writes to `localStorage` (survives tab close/reopen) — not `sessionStorage`
+- On inbox creation: stores mirror immediately
+- On inbox deletion: clears mirror from localStorage
+- On app load: restores mirror from localStorage for instant UI display
+
+### RC4 Fixed: "Restore, don't recreate" on page load
+- App load now checks localStorage for `studenttemp_active_inbox` before rendering
+- If found: restores the same inbox ID (no auto-create)
+- If not found: shows "No active inbox" empty state (waits for user action)
+- Verified: generated inbox → reloaded page → **same inbox persisted** ✓
+
+### RC5 Fixed: Session cookie persists across reloads
+- HttpOnly cookie already implemented — verified working
+- Session restored on page reload via `getOrCreateSession`
+
+### Decision Tree Implemented (from BUGFIX doc):
+- ✅ Valid session cookie + active inbox → render Home with same address
+- ✅ Valid session cookie + expired inbox → render "No active inbox" (not auto-create)
+- ✅ No session cookie → render empty state, wait for user action
+- ✅ Server unreachable → localStorage mirror shown as cached state
+
+## GAP-ANALYSIS-V2.md — Implemented
+
+### L4 Fixed: Alias cooldown — same session can reclaim
+- When checking alias availability: if cooldown is active BUT the requesting session hash matches `lastUsedBySessionHash` on the cooldown ledger → allow immediate reclaim (skip cooldown)
+- This fixes a real bug where legitimate returning users were punished by the anti-squatting cooldown
+
+### L1 Fixed: Inbox expires mid-request — specific error code
+- Messages API now returns `{ error: 'Inbox expired', code: 'INBOX_EXPIRED' }` with status 410 (Gone)
+- Previously returned generic 404 — now client can distinguish "not found" from "expired"
+- Also returns `{ code: 'INBOX_NOT_FOUND' }` for actual 404s
+
+### G10 Implemented: Spam scoring heuristics (rule-based, not fake AI)
+- Real signals used: SPF fail (+3), DKIM fail/none (+2), DMARC fail/none (+2)
+- Urgency keywords in subject/body: "verify now", "account suspended", "urgent", etc. (+2)
+- Excessive HTML links: >10 links (+2), >5 links (+1)
+- Score ≥ 6 → `scanStatus: 'quarantined'`, else `clean`
+- All scoring is from real message data — not fabricated
+
+### G13 Implemented: Print message action
+- Added "Print message" menu item in reader's More dropdown
+- Calls `window.print()` — generates clean print-friendly view
+- Printer icon from lucide-react
+
+### G14 Implemented: Additional keyboard shortcuts
+- `s` — Star/unstar selected message
+- `u` — Mark as unread + return to list
+- `#` — Delete currently open message
+- `a` — Reply All (dispatches reply event)
+- Previously had: `c` (copy), `n` (new), `r` (refresh), `/` (search), `j`/`k` (navigate), `f` (forward), `?` (help), `⌘K` (palette), `Shift+S` (global search)
+
+## Verification
+- `bun run lint` → 0 errors
+- Inbox persistence: generated inbox → reloaded page → **same inbox restored** ✓
+- Test mail button: sent real email → arrived in real-time ✓
+- Print menu item: visible in reader's More dropdown ✓
+- Console: zero errors ✓
+- All services running clean

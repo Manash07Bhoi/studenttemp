@@ -10,7 +10,7 @@ import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
   CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send, MessagesSquare,
-  ChevronsDownUp, CheckSquare, Check,
+  ChevronsDownUp, CheckSquare, Check, Printer,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -1137,6 +1137,12 @@ function MessageReader({
                 className="gap-2"
               >
                 <Download className="h-3.5 w-3.5" /> Export as .eml
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.print()}
+                className="gap-2"
+              >
+                <Printer className="h-3.5 w-3.5" /> Print message
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowReport(true)} className="gap-2 text-red-600">
