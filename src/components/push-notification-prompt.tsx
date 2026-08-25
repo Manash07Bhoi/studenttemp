@@ -41,10 +41,10 @@ export function PushNotificationPrompt() {
       if (typeof Notification === 'undefined') return
       const perm = await Notification.requestPermission()
       if (perm === 'granted') {
-        // Try to subscribe via PushManager
+        // Subscribe via PushManager with real VAPID keys
         try {
           const reg = await navigator.serviceWorker.ready
-          const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ''
+          const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
           if (vapidPublicKey) {
             const sub = await reg.pushManager.subscribe({
               userVisibleOnly: true,
@@ -57,7 +57,9 @@ export function PushNotificationPrompt() {
               keys: { p256dh: subJson.keys?.p256dh || '', auth: subJson.keys?.auth || '' },
             })
           }
-        } catch {}
+        } catch (e) {
+          console.warn('[push] subscription failed:', e)
+        }
       }
     }, 350)
   }

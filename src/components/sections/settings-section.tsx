@@ -443,19 +443,18 @@ function PushNotificationToggle() {
       toast.error('Notification permission denied')
       return
     }
-    // Subscribe via PushManager (real Web Push)
+    // Subscribe via PushManager (real Web Push with real VAPID keys)
     try {
       const reg = await navigator.serviceWorker.ready
-      // VAPID key — in production this comes from env. For dev we use a placeholder
-      // and the subscription is stored locally. Real push delivery requires a Vapid
-      // public key configured server-side.
-      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ''
-      const sub = vapidPublicKey
-        ? await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-          })
-        : await reg.pushManager.subscribe({ userVisibleOnly: true })
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!vapidPublicKey) {
+        toast.error('VAPID keys not configured on the server')
+        return
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      })
       const subJson = sub.toJSON()
       await api.subscribePush({
         endpoint: subJson.endpoint || '',
@@ -464,7 +463,7 @@ function PushNotificationToggle() {
       setSubscribed(true)
       queryClient.invalidateQueries({ queryKey: ['stats'] })
       toast.success('Notifications enabled', {
-        description: 'You\'ll be notified when new mail arrives.',
+        description: 'You\'ll receive real push notifications when new mail arrives.',
       })
     } catch (e) {
       toast.error('Failed to subscribe: ' + (e as Error).message)

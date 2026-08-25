@@ -297,6 +297,48 @@ async function ingestMessage(opts: {
   }
 
   console.log(`[mail] delivered real message to ${inbox.email}: "${subject}" from ${senderAddress} (SPF=${spfResult.result}, DKIM=${dkimResult.result}, DMARC=${dmarcResult.result})`)
+
+  // ---------- Send Web Push notification (real VAPID) ----------
+  // Per SECURITY.md §35: payload contains NO message content — just "New email received"
+  if (inbox.sessionId) {
+    try {
+      const subs = await db.notificationSubscription.findMany({
+        where: { sessionId: inbox.sessionId, expiresAt: { gt: new Date() } },
+      })
+      if (subs.length > 0) {
+        const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+        const privateKey = process.env.VAPID_PRIVATE_KEY
+        if (publicKey && privateKey) {
+          const { default: webpush } = await import('web-push')
+          webpush.setVapidDetails('mailto:noreply@studenttemp.example', publicKey, privateKey)
+          const payload = JSON.stringify({
+            title: 'New email received',
+            body: `New mail in ${inbox.email}`,
+            icon: '/logo.svg',
+            badge: '/logo.svg',
+            tag: `inbox-${inbox.id}`,
+            data: { url: '/' },
+          })
+          for (const sub of subs) {
+            try {
+              await webpush.sendNotification(
+                { endpoint: sub.endpoint, keys: JSON.parse(sub.keys) },
+                payload
+              )
+            } catch (err: any) {
+              if (err?.statusCode === 410 || err?.statusCode === 404) {
+                await db.notificationSubscription.delete({ where: { id: sub.id } }).catch(() => {})
+              }
+            }
+          }
+          console.log(`[push] sent ${subs.length} push notification(s)`)
+        }
+      }
+    } catch (e) {
+      console.error('[push] error:', e)
+    }
+  }
+
   return { ok: true, messageId: message.id }
 }
 
