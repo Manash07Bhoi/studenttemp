@@ -98,4 +98,101 @@ export const api = {
 
   getAnalytics: (rangeDays: number) =>
     req<AnalyticsResponse>(`/api/analytics?rangeDays=${rangeDays}`),
+
+  // ===== Account Mode APIs (Phase 12) =====
+  auth: {
+    signup: (body: { fullName: string; username: string; domain: string; password: string; recoveryEmail?: string; recoveryPhone?: string }) =>
+      req<{ ok: boolean; account: { id: string; email: string; displayName: string } }>('/api/auth/signup', {
+        method: 'POST', body: JSON.stringify(body),
+      }),
+    login: (body: { email: string; password: string; totpCode?: string }) =>
+      req<{ ok: boolean; account: { id: string; email: string; displayName: string; totpEnabled: boolean } }>('/api/auth/login', {
+        method: 'POST', body: JSON.stringify(body),
+      }),
+    logout: () => req<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+    me: () => req<{ account: { id: string; email: string; displayName: string; phone: string | null; recoveryEmail: string | null; recoveryPhone: string | null; totpEnabled: boolean; storageQuotaBytes: string; storageUsedBytes: string; status: string; createdAt: string } | null }>('/api/auth/me'),
+  },
+
+  // Labels
+  labels: {
+    list: () => req<{ labels: Array<{ id: string; name: string; color: string; retentionDays: number | null; isSystemLabel: boolean; parentLabelId: string | null }> }>('/api/accounts/labels'),
+    create: (body: { name: string; color?: string; retentionDays?: number | null; parentLabelId?: string | null }) =>
+      req<{ ok: boolean; label: { id: string } }>('/api/accounts/labels', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: { name?: string; color?: string; retentionDays?: number | null }) =>
+      req<{ ok: boolean }>(`/api/accounts/labels`, { method: 'PATCH', body: JSON.stringify({ id, ...body }) }),
+    delete: (id: string) =>
+      req<{ ok: boolean }>(`/api/accounts/labels?id=${id}`, { method: 'DELETE' }),
+  },
+
+  // Filters
+  filters: {
+    list: () => req<{ filters: Array<{ id: string; priorityOrder: number; conditions: string; actions: string; stopProcessing: boolean }> }>('/api/accounts/filters'),
+    create: (body: { conditions: Array<{ field: string; operator: string; value: string }>; actions: Array<{ type: string; value?: string }>; stopProcessing?: boolean }) =>
+      req<{ ok: boolean; filter: { id: string } }>('/api/accounts/filters', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      req<{ ok: boolean }>(`/api/accounts/filters?id=${id}`, { method: 'DELETE' }),
+  },
+
+  // Contacts
+  contacts: {
+    list: () => req<{ contacts: Array<{ id: string; name: string; email: string; groupName: string | null; source: string }> }>('/api/accounts/contacts'),
+    create: (body: { name: string; email: string; groupName?: string }) =>
+      req<{ ok: boolean; contact: { id: string } }>('/api/accounts/contacts', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      req<{ ok: boolean }>(`/api/accounts/contacts?id=${id}`, { method: 'DELETE' }),
+  },
+
+  // Sessions
+  sessions: {
+    list: () => req<{ sessions: Array<{ id: string; deviceInfo: string; ipHash: string | null; createdAt: string; lastSeenAt: string; revoked: boolean }> }>('/api/accounts/sessions'),
+    revoke: (id: string) =>
+      req<{ ok: boolean }>(`/api/accounts/sessions?id=${id}`, { method: 'DELETE' }),
+  },
+
+  // Vacation responder
+  vacation: {
+    get: () => req<{ vacationResponder: { enabled: boolean; startDate: string | null; endDate: string | null; subject: string; body: string; contactsOnly: boolean } | null }>('/api/accounts/vacation'),
+    update: (body: { enabled: boolean; startDate?: string | null; endDate?: string | null; subject?: string; body?: string; contactsOnly?: boolean }) =>
+      req<{ ok: boolean }>('/api/accounts/vacation', { method: 'PUT', body: JSON.stringify(body) }),
+  },
+
+  // Account deletion (L5)
+  deleteAccount: (confirmPhrase: string) =>
+    req<{ ok: boolean; message: string; deletionDate: string }>('/api/accounts/delete', {
+      method: 'POST', body: JSON.stringify({ confirmPhrase }),
+    }),
+
+  // Admin dashboard
+  admin: {
+    stats: () => req<{
+      overview: { totalAccounts: number; activeAccounts: number; totalInboxes: number; activeInboxes: number; permanentInboxes: number; totalMessages: number; messages24h: number; totalAttachments: number; abuseReports: number; domains: number; totalStorageUsed: string };
+      accountMode: { filters: number; labels: number; contacts: number; sentMessages: number; drafts: number; activeSessions: number };
+      abuse: { total: number; byCategory: Array<{ category: string; _count: number }> };
+      timestamp: string;
+    }>('/api/admin/stats'),
+  },
+
+  // Account inboxes (permanent / time-limited)
+  accountInboxes: {
+    list: () => req<{ inboxes: Inbox[] }>('/api/accounts/inboxes'),
+    create: (body: { domain: string; plan: string; customLocalPart?: string }) =>
+      req<{ inbox: Inbox }>('/api/accounts/inboxes', { method: 'POST', body: JSON.stringify(body) }),
+  },
+
+  // Sent messages
+  sent: {
+    list: () => req<{ sentMessages: Array<{ id: string; to: string; subject: string; sentAt: string; status: string }> }>('/api/accounts/sent'),
+  },
+
+  // Drafts
+  drafts: {
+    list: () => req<{ drafts: Array<{ id: string; to: string; subject: string; body: string; lastSavedAt: string }> }>('/api/accounts/drafts'),
+  },
+
+  // Aliases (G9)
+  aliases: {
+    list: () => req<{ aliases: Array<{ id: string; aliasAddress: string; signature: string | null; active: boolean }> }>('/api/accounts/aliases'),
+    create: (body: { aliasAddress: string; signature?: string }) =>
+      req<{ ok: boolean; alias: { id: string } }>('/api/accounts/aliases', { method: 'POST', body: JSON.stringify(body) }),
+  },
 }

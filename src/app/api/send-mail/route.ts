@@ -1,9 +1,13 @@
 // POST /api/send-mail — compose & send a REAL email via SMTP to an external address
 // Uses the real SMTP server (port 2525) on the mail-service, OR nodemailer directly to
 // a real external MX host (if SMTP_RELAY_HOST is set). This is REAL email sending, not a mock.
+//
+// Phase 13.4: Creates a real SentMessage row for mail tracking (T1-T4).
+// The row's status transitions: sent → delivered/bounced based on the relay response.
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getOrCreateSession, getClientIp, rateLimit, auditLog, QUOTAS } from '@/lib/mail-utils'
+import { getAccountId } from '@/lib/auth-utils'
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req)
@@ -36,6 +40,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Inbox not found or expired' }, { status: 404 })
   }
 
+  // Phase 13.4: Check if this is an Account Mode inbox — if so, get the accountId
+  const accountId = inbox.accountId || await getAccountId()
+
   // Send via real SMTP. We connect to the mail-service's SMTP server on port 2525
   // and submit a real RFC 5322 message. The mail-service accepts it as if it came
   // from the inbox user, then forwards via outbound relay (configured in prod).
@@ -59,9 +66,40 @@ export async function POST(req: NextRequest) {
       text: String(text),
       html: html ? String(html) : undefined,
     })
+
+    // Phase 13.4: Create a SentMessage row for mail tracking (Account Mode only)
+    if (accountId) {
+      await db.sentMessage.create({
+        data: {
+          accountId,
+          to: toAddr,
+          subject: String(subject),
+          body: String(text),
+          relayProvider: process.env.SMTP_RELAY_HOST ? 'external' : 'local',
+          relayMessageId: info.messageId || null,
+          status: 'sent',
+          sentAt: new Date(),
+        },
+      })
+    }
+
     await auditLog({ sessionId, action: 'mail.send', targetType: 'inbox', targetId: inboxId, metadata: { to: toAddr, subject, messageId: info.messageId }, ip })
     return NextResponse.json({ ok: true, messageId: info.messageId, response: info.response })
   } catch (e) {
+    // Phase 13.4: Record the failure in SentMessage (Account Mode only)
+    if (accountId) {
+      await db.sentMessage.create({
+        data: {
+          accountId,
+          to: toAddr,
+          subject: String(subject),
+          body: String(text),
+          relayProvider: 'local',
+          status: 'failed',
+          bounceReason: (e as Error).message,
+        },
+      }).catch(() => {})
+    }
     console.error('[send-mail] error:', e)
     return NextResponse.json({ error: 'Failed to send email: ' + (e as Error).message }, { status: 500 })
   }

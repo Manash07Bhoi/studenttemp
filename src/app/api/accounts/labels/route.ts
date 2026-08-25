@@ -38,3 +38,51 @@ export async function POST(req: NextRequest) {
   })
   return NextResponse.json({ label }, { status: 201 })
 }
+
+// PATCH /api/accounts/labels — Update a label (name, color, retentionDays)
+export async function PATCH(req: NextRequest) {
+  const accountId = await getAccountId()
+  if (!accountId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const body = await req.json().catch(() => ({}))
+  const { id, name, color, retentionDays } = body || {}
+  if (!id) return NextResponse.json({ error: 'Label id required' }, { status: 400 })
+
+  // Verify ownership
+  const existing = await db.label.findUnique({ where: { id } })
+  if (!existing || existing.accountId !== accountId) {
+    return NextResponse.json({ error: 'Label not found' }, { status: 404 })
+  }
+  if (existing.isSystemLabel && name && name !== existing.name) {
+    return NextResponse.json({ error: 'Cannot rename system labels' }, { status: 400 })
+  }
+
+  await db.label.update({
+    where: { id },
+    data: {
+      ...(name !== undefined ? { name: String(name) } : {}),
+      ...(color !== undefined ? { color: String(color) } : {}),
+      ...(retentionDays !== undefined ? { retentionDays: retentionDays || null } : {}),
+    },
+  })
+  return NextResponse.json({ ok: true })
+}
+
+// DELETE /api/accounts/labels — Delete a custom label (system labels are protected)
+export async function DELETE(req: NextRequest) {
+  const accountId = await getAccountId()
+  if (!accountId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Label id required' }, { status: 400 })
+
+  const existing = await db.label.findUnique({ where: { id } })
+  if (!existing || existing.accountId !== accountId) {
+    return NextResponse.json({ error: 'Label not found' }, { status: 404 })
+  }
+  if (existing.isSystemLabel) {
+    return NextResponse.json({ error: 'Cannot delete system labels' }, { status: 400 })
+  }
+
+  await db.label.delete({ where: { id } })
+  return NextResponse.json({ ok: true })
+}

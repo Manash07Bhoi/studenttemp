@@ -32,6 +32,8 @@ import { OnboardingOverlay } from '@/components/sections/onboarding-overlay'
 import { PushNotificationPrompt } from '@/components/push-notification-prompt'
 import { DpdpConsentBanner } from '@/components/dpdp-consent-banner'
 import { AnalyticsSection } from '@/components/sections/analytics-section'
+import { AccountModeSection } from '@/components/sections/account-mode-section'
+import { User as UserIcon } from 'lucide-react'
 
 const NAV_ITEMS: { id: SectionId; labelKey: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'inbox', labelKey: 'nav.inbox', icon: Mail },
@@ -39,6 +41,8 @@ const NAV_ITEMS: { id: SectionId; labelKey: string; icon: React.ComponentType<{ 
   { id: 'addresses', labelKey: 'nav.addresses', icon: AtSign },
   { id: 'compose', labelKey: 'nav.compose', icon: Plus },
   { id: 'analytics', labelKey: 'nav.analytics', icon: BarChart3 },
+  { id: 'auth', labelKey: 'Account', icon: UserIcon },
+  { id: 'admin', labelKey: 'Admin', icon: Shield },
   { id: 'settings', labelKey: 'nav.settings', icon: SettingsIcon },
   { id: 'about', labelKey: 'nav.about', icon: Info },
 ]
@@ -267,6 +271,17 @@ export function AppShell() {
     compose: ComposeSection,
     sessions: SettingsSection,
     analytics: AnalyticsSection,
+    // Account Mode screens (Phase 12)
+    auth: AccountModeSection,
+    'profile-setup': AccountModeSection,
+    'account-home': AccountModeSection,
+    'labels-filters': AccountModeSection,
+    contacts: AccountModeSection,
+    storage: AccountModeSection,
+    security: AccountModeSection,
+    'account-switcher': AccountModeSection,
+    vacation: AccountModeSection,
+    admin: AccountModeSection,
   }
 
   const ActiveSection = sections[activeSection] || InboxSection
