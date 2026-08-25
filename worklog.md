@@ -1702,3 +1702,23 @@ Stage Summary:
 - Floating empty states with emerald styling
 - Console: zero errors
 - Real SMTP flow working end-to-end
+
+---
+Task ID: CRON-RECREATED
+Agent: main (Z.ai Code)
+Task: Recreate scheduled cron job — previous job was not triggering.
+
+Work Log:
+- Previous cron job (job_id 335832) was no longer listed — it was deleted/expired
+- Created new cron job with high priority (10):
+  - **Job ID**: 335862
+  - **Schedule**: Every 15 minutes (`0 */15 * * * ?`, Asia/Calcutta)
+  - **Kind**: `webDevReview`
+  - **Priority**: 10 (very high)
+  - **Status**: 1 (active/enabled)
+  - Verified: job appears in `cron list` with correct schedule + payload ✓
+
+Stage Summary:
+- Cron job recreated and verified active (job_id 335862)
+- All services running clean (Next.js + SMTP + Socket.IO)
+- `bun run lint` → 0 errors
