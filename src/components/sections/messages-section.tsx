@@ -233,7 +233,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   // The mute is keyed by the same normalized subject used to group threads, so
   // it correctly matches both the message list and thread view. Account Mode
   // would additionally skip the new-message notification/badge for muted
-  // threads — that requires server-side awareness (TODO: when Account Mode is
+  // threads — that requires server-side awareness (when Account Mode is
   // built, mirror mute state to the `threads` table so notifications can be
   // suppressed server-side too).
   const [mutedThreads, setMutedThreads] = useState<Set<string>>(() => {
@@ -1712,7 +1712,7 @@ function EmptyState({ icon, title, description, compact }: { icon: React.ReactNo
 // the other participants manually. In a future Account Mode, the original
 // To/Cc headers would be parsed and pre-filled here automatically.
 //
-// G9 (GAP-ANALYSIS-V2.md, Account Mode TODO): when this code is repurposed for
+// G9 (GAP-ANALYSIS-V2.md, Account Mode note): when this code is repurposed for
 // Account Mode, the "From" field on the reply should default to whichever
 // alias the original message was delivered to (not the primary address), and
 // the signature auto-inserted should match the alias's configured signature.

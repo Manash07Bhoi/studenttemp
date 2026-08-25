@@ -26,7 +26,6 @@ export function useServiceWorker() {
               newWorker.addEventListener('statechange', () => {
                 if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
                   // New SW activated — reload to pick up changes
-                  console.log('[sw] new service worker activated, reloading…')
                   window.location.reload()
                 }
               })
@@ -44,7 +43,6 @@ export function useServiceWorker() {
     // Listen for SW messages (manual reload trigger from SW)
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === 'SW_UPDATED') {
-        console.log('[sw] received SW_UPDATED message, reloading…')
         window.location.reload()
       }
     }

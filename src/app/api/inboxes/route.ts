@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid domain' }, { status: 400 })
   }
 
-  const lifetime = Number(lifetimeMinutes) || INBOX_LIFETIME_OPTIONS.find(o => o.default)?.value || 10
+  const lifetime = Number(lifetimeMinutes) || INBOX_LIFETIME_OPTIONS.find(o => 'default' in o && o.default)?.value || 10
   if (!INBOX_LIFETIME_OPTIONS.some(o => o.value === lifetime)) {
     return NextResponse.json({ error: 'Invalid lifetime' }, { status: 400 })
   }
