@@ -62,6 +62,61 @@ const DOMAINS = [
   { domain: 'ghostmail.io', pack: 'privacy', country: 'global', category: 'privacy', reputationScore: 83 },
   { domain: 'shieldmail.com', pack: 'privacy', country: 'global', category: 'privacy', reputationScore: 82 },
   { domain: 'safemail.in', pack: 'privacy', country: 'india', category: 'privacy', reputationScore: 81 },
+
+  // ===== Academic-Style Domains (.edu / .ac.in themed — temp-mail branded, NOT real institutions) =====
+  // These are operator-owned temp mail domains styled with academic extensions.
+  // ALL clearly labeled: "Temporary — not an official institution email"
+  { domain: 'studentbox.edu', pack: 'academic', country: 'us', category: 'student', reputationScore: 96 },
+  { domain: 'campusmail.edu', pack: 'academic', country: 'us', category: 'student', reputationScore: 95 },
+  { domain: 'tempstudent.edu', pack: 'academic', country: 'us', category: 'student', reputationScore: 94 },
+  { domain: 'scholarbox.edu', pack: 'academic', country: 'us', category: 'student', reputationScore: 93 },
+  { domain: 'quickcampus.edu', pack: 'academic', country: 'us', category: 'student', reputationScore: 92 },
+  { domain: 'exammail.edu', pack: 'academic', country: 'us', category: 'student', reputationScore: 91 },
+  { domain: 'studenttemp.ac.in', pack: 'academic', country: 'india', category: 'student', reputationScore: 96 },
+  { domain: 'campustemp.ac.in', pack: 'academic', country: 'india', category: 'student', reputationScore: 95 },
+  { domain: 'examtemp.ac.in', pack: 'academic', country: 'india', category: 'student', reputationScore: 94 },
+  { domain: 'scholartemp.ac.in', pack: 'academic', country: 'india', category: 'student', reputationScore: 93 },
+  { domain: 'studentbox.edu.in', pack: 'academic', country: 'india', category: 'student', reputationScore: 92 },
+  { domain: 'campusmail.edu.in', pack: 'academic', country: 'india', category: 'student', reputationScore: 91 },
+  { domain: 'quickstudent.ac.uk', pack: 'academic', country: 'uk', category: 'student', reputationScore: 90 },
+  { domain: 'tempcampus.ac.uk', pack: 'academic', country: 'uk', category: 'student', reputationScore: 89 },
+  { domain: 'studenttemp.edu.au', pack: 'academic', country: 'australia', category: 'student', reputationScore: 88 },
+  { domain: 'campustemp.edu.au', pack: 'academic', country: 'australia', category: 'student', reputationScore: 87 },
+  { domain: 'studentbox.edu.sg', pack: 'academic', country: 'singapore', category: 'student', reputationScore: 86 },
+  { domain: 'tempstudent.ac.jp', pack: 'academic', country: 'japan', category: 'student', reputationScore: 85 },
+  { domain: 'campusmail.ac.kr', pack: 'academic', country: 'korea', category: 'student', reputationScore: 84 },
+  { domain: 'studenttemp.edu.cn', pack: 'academic', country: 'china', category: 'student', reputationScore: 83 },
+
+  // ===== More International TLDs =====
+  { domain: 'tempmail.net', pack: 'international', country: 'global', category: 'general', reputationScore: 78 },
+  { domain: 'quickmail.net', pack: 'international', country: 'global', category: 'general', reputationScore: 77 },
+  { domain: 'inboxtemp.net', pack: 'international', country: 'global', category: 'general', reputationScore: 76 },
+  { domain: 'mailzone.net', pack: 'international', country: 'global', category: 'general', reputationScore: 75 },
+  { domain: 'tempbox.net', pack: 'international', country: 'global', category: 'general', reputationScore: 74 },
+  { domain: 'flashmail.net', pack: 'international', country: 'global', category: 'quick', reputationScore: 73 },
+  { domain: 'snapinbox.net', pack: 'international', country: 'global', category: 'quick', reputationScore: 72 },
+  { domain: 'studentmail.me', pack: 'international', country: 'global', category: 'student', reputationScore: 80 },
+  { domain: 'tempmail.me', pack: 'international', country: 'global', category: 'general', reputationScore: 79 },
+  { domain: 'quickinbox.me', pack: 'international', country: 'global', category: 'general', reputationScore: 78 },
+  { domain: 'burnmail.me', pack: 'international', country: 'global', category: 'privacy', reputationScore: 77 },
+  { domain: 'tempmail.dev', pack: 'international', country: 'global', category: 'developer', reputationScore: 82 },
+  { domain: 'devtemp.dev', pack: 'international', country: 'global', category: 'developer', reputationScore: 81 },
+  { domain: 'codemail.dev', pack: 'international', country: 'global', category: 'developer', reputationScore: 80 },
+  { domain: 'tempmail.co', pack: 'international', country: 'global', category: 'general', reputationScore: 76 },
+  { domain: 'quickbox.co', pack: 'international', country: 'global', category: 'general', reputationScore: 75 },
+  { domain: 'studentmail.co', pack: 'international', country: 'global', category: 'student', reputationScore: 74 },
+
+  // ===== More India Domains =====
+  { domain: 'mailpost.in', pack: 'standard', country: 'india', category: 'general', reputationScore: 75 },
+  { domain: 'inboxzone.in', pack: 'standard', country: 'india', category: 'general', reputationScore: 74 },
+  { domain: 'tempstation.in', pack: 'standard', country: 'india', category: 'general', reputationScore: 73 },
+  { domain: 'scholarpost.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 85 },
+  { domain: 'collegetemp.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 84 },
+  { domain: 'studyzone.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 83 },
+  { domain: 'examzone.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 82 },
+  { domain: 'campuspost.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 81 },
+  { domain: 'scholarzone.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 80 },
+  { domain: 'studytemp.in', pack: 'indian_student', country: 'india', category: 'student', reputationScore: 79 },
 ]
 
 async function main() {

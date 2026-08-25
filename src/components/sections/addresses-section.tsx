@@ -272,6 +272,7 @@ function QuickNewDialog({
                     standard: '🇮🇳 India General',
                     international: '🌍 International',
                     privacy: '🔒 Privacy',
+                      academic: '🎓 Academic (.edu/.ac.in)',
                   }
                   const grouped: Record<string, typeof domains> = {}
                   for (const d of domains) {

@@ -22,6 +22,7 @@ export async function getDomains() {
     const label = d.domain.split('.')[0].charAt(0).toUpperCase() + d.domain.split('.')[0].slice(1)
     let badge = ''
     if (d.domain === 'studentbox.in') badge = 'Most Popular'
+    else if (d.pack === 'academic') badge = '🎓 Academic'
     else if (d.pack === 'indian_student') badge = 'India'
     else if (d.pack === 'international') badge = 'Global'
     else if (d.pack === 'privacy') badge = 'Privacy'

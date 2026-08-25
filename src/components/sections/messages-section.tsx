@@ -494,15 +494,15 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
           <ScrollArea className="h-[55vh] lg:h-[65vh] scrollbar-thin">
             <PullToRefresh onRefresh={async () => { await refetch() }}>
             {isFetching && messages.length === 0 ? (
-              <div className="p-3 space-y-2">
+              <div className="p-3 space-y-2 animate-stagger">
                 {[0, 1, 2, 3].map((i) => (
                   <div key={i} className="rounded-lg p-3 border border-border/40">
                     <div className="flex gap-3">
-                      <Skeleton className="h-10 w-10 rounded-full" />
+                      <div className="h-10 w-10 rounded-full bg-muted shimmer" />
                       <div className="flex-1 space-y-2">
-                        <Skeleton className="h-3 w-2/3" />
-                        <Skeleton className="h-3 w-1/2" />
-                        <Skeleton className="h-2 w-full" />
+                        <div className="h-3 w-2/3 rounded bg-muted shimmer" />
+                        <div className="h-3 w-1/2 rounded bg-muted shimmer" />
+                        <div className="h-2 w-full rounded bg-muted shimmer" />
                       </div>
                     </div>
                   </div>
@@ -1242,12 +1242,12 @@ function MessageReader({
       <ScrollArea className="flex-1 scrollbar-thin">
         <div className="p-4">
           {loading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-5/6" />
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-4 w-2/3" />
+            <div className="space-y-3 animate-stagger">
+              <div className="h-4 w-3/4 rounded bg-muted shimmer" />
+              <div className="h-4 w-full rounded bg-muted shimmer" />
+              <div className="h-4 w-5/6 rounded bg-muted shimmer" />
+              <div className="h-24 w-full rounded-lg bg-muted shimmer" />
+              <div className="h-4 w-2/3 rounded bg-muted shimmer" />
             </div>
           ) : showRaw ? (
             <pre className="whitespace-pre-wrap break-words text-sm font-mono text-foreground/80">
@@ -1375,11 +1375,16 @@ function AuthChip({ label, value }: { label: string; value: string }) {
 
 function EmptyState({ icon, title, description, compact }: { icon: React.ReactNode; title: string; description: string; compact?: boolean }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center text-center', compact ? 'p-8' : 'p-12')}>
-      <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
-      <h3 className="font-semibold">{title}</h3>
-      <p className="mt-1 max-w-xs text-sm text-muted-foreground">{description}</p>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      className={cn('flex flex-col items-center justify-center text-center', compact ? 'p-8' : 'p-12')}
+    >
+      <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500 animate-float">{icon}</div>
+      <h3 className="font-semibold text-lg">{title}</h3>
+      <p className="mt-1.5 max-w-xs text-sm text-muted-foreground leading-relaxed">{description}</p>
+    </motion.div>
   )
 }
 

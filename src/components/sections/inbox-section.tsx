@@ -256,14 +256,14 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                 exit={{ opacity: 0 }}
                 className="rounded-xl border-2 border-dashed border-border p-8 text-center"
               >
-                <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+                <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500 animate-float">
                   <Mail className="h-7 w-7" />
                 </div>
                 <h3 className="text-lg font-semibold">{t('inbox.noActiveInbox')}</h3>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
                   Generate a fresh disposable email address to start receiving mail in seconds.
                 </p>
-                <Button onClick={handleGenerate} className="mt-5 gap-2" disabled={createMutation.isPending}>
+                <Button onClick={handleGenerate} className="mt-5 gap-2 animate-glow-brand" disabled={createMutation.isPending}>
                   <Plus className="h-4 w-4" /> Generate my inbox
                 </Button>
               </motion.div>
@@ -271,9 +271,10 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
           </AnimatePresence>
 
           {createMutation.isPending && !activeInbox && (
-            <div className="space-y-3">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-8 w-48" />
+            <div className="space-y-3 animate-stagger">
+              <div className="h-12 w-full rounded-xl bg-muted shimmer" />
+              <div className="h-8 w-48 rounded-lg bg-muted shimmer" />
+              <div className="h-20 w-full rounded-xl bg-muted shimmer" />
             </div>
           )}
         </div>
@@ -506,6 +507,7 @@ function CustomizeDialog({
                       standard: '🇮🇳 India General',
                       international: '🌍 International',
                       privacy: '🔒 Privacy',
+                      academic: '🎓 Academic (.edu/.ac.in)',
                     }
                     const grouped: Record<string, typeof domains> = {}
                     for (const d of domains) {

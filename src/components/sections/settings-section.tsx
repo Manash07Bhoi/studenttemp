@@ -140,6 +140,7 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
                       standard: '🇮🇳 India General',
                       international: '🌍 International',
                       privacy: '🔒 Privacy',
+                      academic: '🎓 Academic (.edu/.ac.in)',
                     }
                     const grouped: Record<string, typeof domainsData.domains> = {}
                     for (const d of domainsData.domains) {

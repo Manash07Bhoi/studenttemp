@@ -1,0 +1,46 @@
+Category,Domain,Type,Description
+US Student Roots,edu,Root TLD,Standard US Higher Education Root
+US Student Subdomains,student.[university].edu,Subdomain,Standard student directory segment
+US Student Subdomains,mail.[university].edu,Subdomain,Google/Microsoft Cloud email routing
+US Student Subdomains,my.[university].edu,Subdomain,Student single sign-on campus portal
+US K-12 Schools,k12.[state].us,Root TLD,US public school system regional structure
+UK Student Roots,ac.uk,Root TLD,Standard United Kingdom Higher Education
+UK Student Subdomains,live.[university].ac.uk,Subdomain,Microsoft Exchange/Outlook student portal
+UK Student Subdomains,uni.[university].ac.uk,Subdomain,Undergraduate directory partition
+UK K-12 Schools,sch.uk,Root TLD,UK primary and secondary school networks
+Indian Student Roots,ac.in,Root TLD,Standard Indian Higher Education Framework
+Indian Student Roots,edu.in,Root TLD,"Indian schools, boards, and autonomous bodies"
+Indian Student Roots,res.in,Root TLD,Indian premier scientific research institutions
+Indian Student Subdomains,student.[institute].ac.in,Subdomain,Central & State university student server
+Indian Student Subdomains,stud.[institute].ac.in,Subdomain,Truncated academic subdomain variation
+Indian Student Subdomains,my.[institute].ac.in,Subdomain,Cloud identity systems for active students
+Indian Student Subdomains,smail.[institute].ac.in,Subdomain,"Premium student routing (e.g., IIT Madras)"
+Global Student Roots,edu.au,Root TLD,Australia standard academic network
+Global Student Roots,edu.ca,Root TLD,Canada academic system core
+Global Student Roots,ac.nz,Root TLD,New Zealand higher education framework
+Global Student Subdomains,stud.[university].de,Subdomain,Germany student directory partition
+Global Student Subdomains,etu.[university].fr,Subdomain,France undergraduate network (Etudiant)
+Global Student Subdomains,alumnos.[university].es,Subdomain,Spain student server mapping
+Temp Mail Provider,worldtempmail.com,Disposable,World Temp Mail default domain
+Temp Mail Provider,tempmail.com,Disposable,Generic global temp mail server
+Temp Mail Provider,mailinator.com,Disposable,Public throwaway testing directory
+Temp Mail Provider,10minutemail.com,Disposable,Timed auto-expiry generic service
+Temp Mail Provider,guerrillamail.com,Disposable,Open-source disposable mail cluster
+Temp Mail Provider,sharklasers.com,Disposable,GuerrillaMail fallback extension
+Temp Mail Provider,yopmail.com,Disposable,High-volume validation testing domain
+Temp Mail Provider,dispostable.com,Disposable,Minimalist inbox testing tool
+Temp Mail Provider,trashmail.com,Disposable,Email forwarding validation tool
+Public Provider,gmail.com,Standard Public,Google Consumer Email Network
+Public Provider,googlemail.com,Standard Public,Google Consumer Legacy Variant
+Public Provider,yahoo.com,Standard Public,Yahoo Global Consumer Infrastructure
+Public Provider,yahoo.co.in,Standard Public,Yahoo Regional Indian Variant
+Public Provider,yahoo.co.uk,Standard Public,Yahoo Regional UK Variant
+Public Provider,outlook.com,Standard Public,Microsoft Flagship Consumer Mail
+Public Provider,hotmail.com,Standard Public,Microsoft Legacy Consumer Network
+Public Provider,live.com,Standard Public,Microsoft Account Core Directory
+Public Provider,icloud.com,Standard Public,Apple Consumer Cloud Ecosystem
+Public Provider,proton.me,Standard Public,Proton Secure Mail Flagship Core
+Public Provider,protonmail.com,Standard Public,Proton Secure Mail Legacy Domain
+Public Provider,zoho.com,Standard Public,Zoho Productivity/Business Consumer Core
+Public Provider,aol.com,Standard Public,AOL Legacy Webmail Architecture
+Public Provider,gmx.com,Standard Public,Global Mail Exchange System
