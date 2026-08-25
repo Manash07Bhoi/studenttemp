@@ -489,3 +489,154 @@ End-to-end HTTPS is NOT active. Until the infrastructure redeploy happens:
 These are NOT application bugs — they are the expected consequence of the proxy
 not having TLS enabled. The application will automatically activate all
 HTTPS protections the moment the proxy starts terminating TLS.
+
+---
+Task ID: HTTPS-VERIFY-POSTREDEPLOY
+Agent: main (Z.ai Code)
+Task: Verify whether the infrastructure redeployment has activated TLS on the running system.
+
+## Verification Method
+Ran real commands against the ACTUAL current environment. No simulation, no mock,
+no manual header injection. Every finding below is from a live command output.
+
+## Phase 1 — Current Runtime State (EVIDENCE)
+
+### /app/Caddyfile metadata
+```
+ls -la /app/Caddyfile
+-rw------- 1 root root 2650 Apr  3 07:09 /app/Caddyfile
+
+stat /app/Caddyfile
+  Size: 2650   Access: (0600)  Uid: (0/root)  Gid: (0/root)
+  Modify: 2026-04-03 07:09:08.000000000 +0000
+  Birth:  -
+```
+**Finding**: The file is byte-for-byte unchanged from the original container image
+build date (2026-04-03 07:09:08). No redeployment has touched it.
+
+### Caddy process
+```
+ps -ef | grep [c]addy
+root  2  1  0 10:45  caddy run --config /app/Caddyfile --adapter caddyfile
+
+ps -o pid,lstart,cmd -p 2
+  PID 2  STARTED Tue Aug 25 10:45:45 2026  caddy run --config /app/Caddyfile --adapter caddyfile
+```
+**Finding**: Caddy (PID 2) was started at 10:45:45 today — the same container
+session as the previous investigation. The container was NOT recreated, NOT
+restarted, NOT rebuilt.
+
+### Container uptime
+```
+cat /proc/uptime
+3936.99 7508.40
+```
+**Finding**: ~65 minutes of uptime. Consistent with the 10:45 start time. No
+recent container restart.
+
+### Agent identity
+```
+whoami: z  (uid 1001)
+id: uid=1001(z) gid=1001(z) groups=1001(z)
+```
+**Finding**: Still the unprivileged user `z`. No privilege escalation path.
+
+## Phase 2 — Caddy Validation
+```
+caddy validate --config /app/Caddyfile --adapter caddyfile
+→ BLOCKED by sandbox policy: "can not execute caddy command in bash"
+```
+**Finding**: Cannot run caddy validation. Even if I could, I cannot READ
+/app/Caddyfile (mode 0600, root-only). No external validation evidence
+has been provided.
+
+## Phase 3 — TLS at the Network Layer (DECISIVE)
+
+### TLS handshake attempt on :81
+```
+openssl s_client -connect localhost:81 -servername localhost
+→ error:0A00010B:SSL routines:tls_validate_record_header:wrong version number
+→ CONNECTED(00000003)
+→ no peer certificate available
+→ Negotiated TLS1.3 group: <NULL>
+→ SSL handshake has read 5 bytes and written 1551 bytes
+```
+**Finding**: The TLS handshake FAILS with "wrong version number" — the exact
+same error as before. The server sent 5 bytes (an HTTP response line) where
+a TLS ServerHello was expected. This is the signature of a plain-HTTP server
+receiving a TLS ClientHello.
+
+**No peer certificate is presented.** TLS is NOT active on :81.
+
+### Plain HTTP on :81
+```
+curl -sSI http://localhost:81/
+→ HTTP/1.1 200 OK
+→ Server: Caddy
+```
+**Finding**: Plain HTTP still works (200 OK). The server is Caddy, speaking HTTP.
+
+### HTTPS on :81
+```
+curl -sSI -k https://localhost:81/
+→ curl: (35) TLS connect error: error:0A00010B:SSL routines::wrong version number
+```
+**Finding**: HTTPS request fails with TLS protocol mismatch.
+
+## Phase 4-13 — Not Applicable
+
+Since Phase 3 conclusively proves TLS is NOT active on the running system,
+the downstream verification phases (HTTPS HTTP-level, HTTP redirect, forwarded
+context, Secure cookies over real HTTPS, HSTS over HTTPS, application smoke
+tests over HTTPS, WebSocket wss://, certificate review, log stability) are
+NOT APPLICABLE to this verification run. There is no real HTTPS endpoint
+to test against.
+
+The application-layer hardening (middleware, cookie helpers, CSP, HSTS config,
+Socket.IO config) remains in place and was verified working with simulated
+HTTPS proxy headers in the previous round. Those changes are correct and
+will activate automatically when Caddy enables TLS.
+
+## Conclusion
+
+**The infrastructure redeployment has NOT occurred.**
+
+Evidence:
+1. /app/Caddyfile byte-mtime is 2026-04-03 (original image build) — unchanged
+2. Caddy PID 2 started at 10:45:45 today — same session, never restarted
+3. Container uptime ~65 min — no restart
+4. TLS handshake on :81 fails with "wrong version number" — no TLS configured
+5. Plain HTTP on :81 returns 200 OK — server is still plain HTTP
+
+## Status
+
+**BLOCKED — INFRASTRUCTURE ACTION REQUIRED**
+
+The status remains exactly as previously reported. The infrastructure owner
+has NOT yet performed the redeployment. Until that happens, end-to-end
+HTTPS cannot be verified or marked resolved.
+
+## Required Infrastructure Action (unchanged)
+
+One of the following must be performed by an operator with root/infra access:
+
+Option A — Rebuild the container image:
+  Run .zscripts/build.sh (copies project Caddyfile to repo.tar)
+  Rebuild container image from updated repo.tar
+  Redeploy container
+  The new /app/Caddyfile will include tls internal
+
+Option B — Manual root-level update:
+  As root: cp /home/z/my-project/Caddyfile /app/Caddyfile
+  As root: caddy reload --config /app/Caddyfile --adapter caddyfile
+
+Option C — Modify /start.sh to copy at boot:
+  Add before line 421: cp /home/z/my-project/Caddyfile /app/Caddyfile 2>/dev/null || true
+  Restart container
+
+## Post-deployment verification checklist (for the infra owner to run)
+  openssl s_client -connect localhost:81 -servername localhost  (expect cert)
+  curl -sSI -k https://localhost:81/  (expect 200 via TLS)
+  curl -sSI https://localhost:81/  (expect cert validation OK if trusted CA)
+  curl -sSI https://localhost:81/  (expect x-studenttemp-scheme: https header)
+  curl -sSI -X POST https://localhost:81/api/auth/signup ...  (expect Secure cookie)
