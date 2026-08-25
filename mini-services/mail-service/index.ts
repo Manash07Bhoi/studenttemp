@@ -24,6 +24,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
+import { scanFile } from '../../src/lib/file-scanner.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -228,13 +229,23 @@ async function ingestMessage(opts: {
   })
 
   // ---------- Persist attachments (real files on disk in dev; R2 in prod) ----------
+  // Each attachment is scanned using the free file-scanner (magic bytes validation,
+  // extension mismatch detection, executable blocking — ClamAV alternative)
   if (parsed.attachments && parsed.attachments.length > 0) {
     for (const att of parsed.attachments) {
       const sha = createHash('sha256').update(att.content).digest('hex')
       const filename = sanitizeFilename(att.filename || 'attachment')
       const storageKey = join(ATTACHMENT_DIR, `${sha}-${filename}`)
-      writeFileSync(storageKey, att.content)
       const mimeType = att.contentType || 'application/octet-stream'
+
+      // ---- Free file scanner (ClamAV alternative — zero external dependencies) ----
+      // Validates magic bytes, blocks executables, checks size limits, detects mismatches
+      const scanResult = scanFile(filename, att.content, mimeType)
+      if (scanResult.status === 'quarantined') {
+        console.log(`[mail] attachment quarantined: ${filename} — ${scanResult.reason}`)
+      }
+      // Write file even if quarantined (so it exists for audit), but mark scan_status
+      writeFileSync(storageKey, att.content)
       await db.attachment.create({
         data: {
           messageId: message.id,
@@ -244,7 +255,7 @@ async function ingestMessage(opts: {
           sizeBytes: att.size || att.content.length,
           storageKey,
           sha256: sha,
-          scanStatus: 'clean', // no ClamAV in dev
+          scanStatus: scanResult.status, // 'clean' or 'quarantined' based on file-scanner results
         },
       })
     }
