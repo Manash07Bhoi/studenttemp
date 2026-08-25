@@ -2016,3 +2016,72 @@ Task: Read BUGFIX-INBOX-PERSISTENCE.md + GAP-ANALYSIS-V2.md, implement all gaps.
 - Print menu item: visible in reader's More dropdown ✓
 - Console: zero errors ✓
 - All services running clean
+
+---
+Task ID: GAP-V2-COMPLETE
+Agent: main (Z.ai Code)
+Task: Complete implementation of all gaps from GAP-ANALYSIS-V2.md + BUGFIX-INBOX-PERSISTENCE.md.
+
+## BUGFIX-INBOX-PERSISTENCE.md — All items verified/implemented:
+
+### RC1-RC6: Complete persistence architecture ✅
+- **RC1** (address in memory only): Fixed — inbox stored in DB + localStorage mirror ✅
+- **RC2** (sessionStorage): Fixed — using `localStorage` (persists across tab close) ✅
+- **RC3** (no DB record): Already fixed — server writes DB row immediately on creation ✅
+- **RC4** (auto-create on load): Fixed — app restores existing inbox, doesn't auto-create ✅
+- **RC5** (no session cookie): Already fixed — HttpOnly, SameSite=Strict cookie ✅
+- **RC6** (PWA resume creates new): Fixed — `visibilitychange` listener re-fetches from server ✅
+
+### Decision Tree — All branches implemented ✅
+- Valid cookie + active inbox → render Home with same address ✅
+- Valid cookie + expired inbox → render "No active inbox" (not auto-create) ✅
+- Valid cookie + no inbox → empty state, wait for user action ✅
+- Server unreachable → **offline banner**: "Showing last known state — reconnecting…" ✅
+- No cookie → empty state, "Create Temporary Email" is the CTA ✅
+
+### Mobile/PWA Fix ✅
+- `visibilitychange` listener added — on tab focus, re-fetches inboxes/messages/stats from server
+- Service Worker doesn't clear localStorage on any lifecycle event ✅
+
+## GAP-ANALYSIS-V2.md — All items implemented:
+
+### G1: Thread View ✅ (already had)
+- Thread grouping by normalized subject
+- Now also extracts `In-Reply-To` and `References` headers from real email for proper threading ✅
+
+### G2: Reply / Reply All / Forward ✅
+- Reply: pre-fills To = sender, Subject = "Re: ..." ✅
+- Forward: Subject = "Fwd: ...", quotes original body ✅
+- Reply All shortcut (`a` key) added ✅
+
+### G10: Spam scoring ✅
+- Rule-based: SPF/DKIM/DMARC fail → +score, urgency keywords → +score, excessive links → +score ✅
+- Score ≥ 6 → `quarantined` ✅
+- **Borderline warning banner** in reader: "This message looks suspicious" ✅
+- **Quarantined banner** in reader: "This message was flagged by spam detection" ✅
+
+### G13: Print message ✅
+- "Print message" in More dropdown → `window.print()` ✅
+
+### G14: Keyboard shortcuts ✅
+- `c` (copy), `n` (new), `r` (refresh), `/` (search), `j`/`k` (navigate) ✅
+- `f` (forward), `s` (star), `u` (mark unread), `#` (delete), `a` (reply all) ✅
+- `?` (help), `⌘K` (palette), `Shift+S` (global search) ✅
+
+### L1: Inbox expires mid-request ✅
+- Server returns `{ code: 'INBOX_EXPIRED' }` with status 410 ✅
+
+### L4: Same session alias reclaim ✅
+- `lastUsedBySessionHash` check — same session skips cooldown ✅
+
+### G8: Importance markers ✅
+- Rule-based: NOT noreply/bulk + auth passes + no bulk headers → "Important" badge (amber) ✅
+
+### G5: Smart Compose explicitly excluded ✅ (per anti-fake-logic rule, not implemented — correct)
+
+## Verification:
+- `bun run lint` → 0 errors ✅
+- Inbox persistence: generate → reload page → same inbox restored ✅
+- Test mail: sent → delivered in real-time ✅
+- Console: zero errors ✅
+- All services running clean ✅
