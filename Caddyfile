@@ -1,33 +1,55 @@
 # ============================================================
-# StudentTemp — Caddy reverse proxy configuration
-# Handles TLS termination, HTTP→HTTPS redirect, and gateway routing.
+# StudentTemp — Caddy reverse proxy configuration (REFERENCE)
+# Handles TLS termination and gateway routing.
 # ============================================================
 #
-# This file is the REFERENCE configuration for the project.
-# The actual running config may be at /app/Caddyfile (managed by infra).
+# DEPLOYMENT STATUS (read before editing):
+#   The RUNNING Caddy uses /app/Caddyfile, which is baked into the
+#   container image at build time and owned by root (mode 0600).
+#   Changes to THIS file only take effect after a full image rebuild
+#   + redeploy (see .zscripts/build.sh lines 148-154 → repo.tar →
+#   container image). The coding agent (user `z`) cannot modify
+#   /app/Caddyfile or restart Caddy at runtime.
 #
-# Caddy automatically provisions and renews certificates via Let's Encrypt
-# in production (when the site is reachable on a real domain).
+#   See docs/HTTPS-AUDIT.md §13 for the full infrastructure blocker.
+# ------------------------------------------------------------
 #
-# In this sandbox/dev environment we use Caddy's internal CA
-# (`tls internal`) which generates locally-trusted certificates.
-# The Caddy root CA can be installed into the system/browser trust store
-# with `caddy trust` for a green-padlock experience in dev.
+# SANDBOX CONSTRAINT:
+#   Only port :81 is exposed externally. Caddy cannot listen on both
+#   :80 (redirect) and :443 (TLS) simultaneously. Therefore:
+#     - :81 runs TLS-only (via `tls internal`).
+#     - Browsers MUST use https://localhost:81 explicitly.
+#     - Plain-HTTP requests to :81 get a TLS handshake error (by design).
+#     - There is no HTTP→HTTPS redirect on :81 (unreachable on a TLS-only port).
+#
+# PRODUCTION (standard ports available):
+#   Replace the block below with:
+#
+#     http:// {
+#       redir https://{host}{uri} permanent
+#     }
+#
+#     https://your-domain.com {
+#       # Caddy auto-provisions Let's Encrypt certificates.
+#       # No tls directive needed — Caddy manages it automatically.
+#       @transform_port_query { query XTransformPort=* }
+#       handle @transform_port_query {
+#         reverse_proxy localhost:{query.XTransformPort} { ... }
+#       }
+#       handle {
+#         reverse_proxy localhost:3000 { ... }
+#       }
+#     }
 # ------------------------------------------------------------
 
-# --- Dev: port 81 with tls internal ---
 :81 {
-	# Redirect plain-HTTP requests to HTTPS on the same port.
-	@not_https {
-		protocol http
-	}
-	redir @not_https https://{host}:{port}{uri} permanent
-
-	# TLS termination using Caddy's built-in CA (self-signed).
-	# For production, use a real domain block instead (see below).
+	# TLS termination using Caddy's built-in CA (self-signed for dev).
+	# For production, use a real domain (see above) and remove this block.
 	tls internal {}
 
 	# --- Gateway routing ---
+	# The query param XTransformPort tells Caddy which upstream to use
+	# (e.g. /?XTransformPort=3003 → mail-service Socket.IO on port 3003).
 	@transform_port_query {
 		query XTransformPort=*
 	}
@@ -50,32 +72,3 @@
 		}
 	}
 }
-
-# --- Production: replace the :81 block above with: ---
-# https://your-domain.com {
-# 	redir http:// https://{host}{uri} permanent
-#
-# 	@transform_port_query {
-# 		query XTransformPort=*
-# 	}
-#
-# 	handle @transform_port_query {
-# 		reverse_proxy localhost:{query.XTransformPort} {
-# 			header_up Host {host}
-# 			header_up X-Forwarded-For {remote_host}
-# 			header_up X-Forwarded-Proto {scheme}
-# 			header_up X-Real-IP {remote_host}
-# 		}
-# 	}
-#
-# 	handle {
-# 		reverse_proxy localhost:3000 {
-# 			header_up Host {host}
-# 			header_up X-Forwarded-For {remote_host}
-# 			header_up X-Forwarded-Proto {scheme}
-# 			header_up X-Real-IP {remote_host}
-# 		}
-# 	}
-# }
-# Caddy will auto-provision Let's Encrypt certificates.
-# No private keys are stored in the repository.
