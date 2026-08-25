@@ -33,7 +33,7 @@ import { PushNotificationPrompt } from '@/components/push-notification-prompt'
 import { DpdpConsentBanner } from '@/components/dpdp-consent-banner'
 import { AnalyticsSection } from '@/components/sections/analytics-section'
 
-const NAV_ITEMS: { id: SectionId; labelKey: string; icon: typeof InboxIcon }[] = [
+const NAV_ITEMS: { id: SectionId; labelKey: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'inbox', labelKey: 'nav.inbox', icon: Mail },
   { id: 'messages', labelKey: 'nav.messages', icon: Activity },
   { id: 'addresses', labelKey: 'nav.addresses', icon: AtSign },

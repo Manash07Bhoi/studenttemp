@@ -1,7 +1,7 @@
 // POST /api/auth/login — Login to an account
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { verifyPassword, createAccountSession, setAccountCookie } from '@/lib/auth-utils'
+import { verifyPassword, createAccountSession, setAccountCookie, verifyTOTP } from '@/lib/auth-utils'
 import { getClientIp, rateLimit, hashToken } from '@/lib/mail-utils'
 
 export async function POST(req: NextRequest) {
@@ -41,12 +41,14 @@ export async function POST(req: NextRequest) {
     if (!totpCode) {
       return NextResponse.json({ error: '2FA code required', requires2FA: true }, { status: 403 })
     }
-    // Verify TOTP (simplified — in production use otplib)
-    // For now, accept any 6-digit code (the TOTP secret verification would be done here)
     if (!/^\d{6}$/.test(totpCode)) {
       return NextResponse.json({ error: 'Invalid 2FA code', requires2FA: true }, { status: 401 })
     }
-    // TODO: verify against actual TOTP secret using otplib
+    // Real TOTP verification using RFC 6238 HOTP-SHA1 (no external dependency)
+    // Accept a ±1 time-step window to allow for clock drift.
+    if (!verifyTOTP(totpCode, account.totpSecretEncrypted)) {
+      return NextResponse.json({ error: 'Invalid 2FA code', requires2FA: true }, { status: 401 })
+    }
   }
 
   // Create session

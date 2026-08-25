@@ -7,6 +7,56 @@ import { cookies } from 'next/headers'
 const ACCOUNT_COOKIE = 'st_account'
 const ACCOUNT_COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
 
+// TOTP configuration (RFC 6238)
+const TOTP_STEP = 30 // seconds
+const TOTP_DIGITS = 6
+const TOTP_WINDOW = 1 // ±1 step for clock drift
+
+/**
+ * Real TOTP verification (RFC 6238 HOTP-SHA1, no external dependency).
+ * @param token  6-digit code from the user's authenticator app
+ * @param secret Base32-encoded secret stored on the Account
+ * @returns true if the token matches within the ±window
+ */
+export function verifyTOTP(token: string, secret: string | null | undefined): boolean {
+  if (!secret) return false
+  const key = base32Decode(secret)
+  if (!key || key.length === 0) return false
+  const now = Math.floor(Date.now() / 1000)
+  for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset++) {
+    const counter = Math.floor(now / TOTP_STEP) + offset
+    if (hotp(key, counter) === token) return true
+  }
+  return false
+}
+
+function hotp(key: Buffer, counter: number): string {
+  const buf = Buffer.alloc(8)
+  buf.writeBigUInt64BE(BigInt(counter))
+  const hmac = crypto.createHmac('sha1', key).update(buf).digest()
+  const offset = hmac[hmac.length - 1] & 0xf
+  const code = ((hmac[offset] & 0x7f) << 24) | (hmac[offset + 1] << 16) | (hmac[offset + 2] << 8) | hmac[offset + 3]
+  return (code % 10 ** TOTP_DIGITS).toString().padStart(TOTP_DIGITS, '0')
+}
+
+function base32Decode(encoded: string): Buffer | null {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  const cleaned = encoded.toUpperCase().replace(/[^A-Z2-7]/g, '')
+  if (!cleaned) return null
+  const bits: string[] = []
+  for (const c of cleaned) {
+    const idx = alphabet.indexOf(c)
+    if (idx === -1) return null
+    bits.push(idx.toString(2).padStart(5, '0'))
+  }
+  const allBits = bits.join('')
+  const bytes: number[] = []
+  for (let i = 0; i + 8 <= allBits.length; i += 8) {
+    bytes.push(parseInt(allBits.slice(i, i + 8), 2))
+  }
+  return Buffer.from(bytes)
+}
+
 export function generateAccountToken(): string {
   return 'atk_' + crypto.randomBytes(24).toString('hex')
 }

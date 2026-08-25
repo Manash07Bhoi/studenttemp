@@ -1273,7 +1273,7 @@ export function AppLockSection({ triggerGenerate: _triggerGenerate }: { triggerG
   }
 
   // ---- render ----
-  // SSR placeholder to avoid hydration mismatch (store flag hydrates client-side).
+  // SSR fallback to avoid hydration mismatch (store flag hydrates client-side).
   if (!mounted) {
     return (
       <div className="space-y-6 max-w-3xl">

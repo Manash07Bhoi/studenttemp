@@ -266,7 +266,7 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
       </Card>
 
       {/* ----------------------------------------------------------------- */}
-      {/* Account Mode — Placeholder for the future permanent-mailbox tier. */}
+      {/* Account Mode — section reserved for the future permanent-mailbox tier. */}
       {/* Not implemented yet (no login system). The card documents the      */}
       {/* cross-cutting cleanup / conflict logic required when this tier     */}
       {/* ships, so the requirements aren't lost between now and the actual  */}
