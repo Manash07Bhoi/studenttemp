@@ -235,7 +235,7 @@ function QuickNewDialog({
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  domains: Array<{ domain: string; label: string; badge: string; popular: boolean }>
+  domains: Array<{ domain: string; label: string; badge: string; popular: boolean; pack?: string; country?: string; category?: string }>
   lifetimeOptions: Array<{ value: number; label: string; default?: boolean }>
   onCreated: (inbox: Inbox) => void
 }) {

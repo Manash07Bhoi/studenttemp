@@ -51,8 +51,12 @@ export interface Inbox {
   email: string
   localPart: string
   domainId: string
-  domain?: { domain: string; pack: string }
+  domain?: { domain: string; pack: string; country?: string; category?: string }
   isCustomAlias: boolean
+  isCustom: boolean // alias for isCustomAlias (UI compat)
+  isPermanent?: boolean
+  planDuration?: string | null
+  accountId?: string | null
   status: string
   category: string
   burnOnRead: boolean
@@ -90,11 +94,15 @@ export interface MessageSummary {
 export interface Attachment {
   id: string
   filename: string
+  name: string // alias for filename (UI compat)
   originalFilename: string | null
   mimeType: string
+  contentType?: string
   sizeBytes: number
+  size: number // alias for sizeBytes (UI compat)
   sha256: string
   scanStatus: string
+  storageKey?: string
 }
 
 export interface AuthDetails {

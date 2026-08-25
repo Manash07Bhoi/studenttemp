@@ -1,0 +1,616 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useCallback, useState, type ReactNode } from 'react'
+     4→import { useQuery, useQueryClient } from '@tanstack/react-query'
+     5→import { motion, AnimatePresence } from 'framer-motion'
+     6→import { Menu, Mail, AtSign, Settings as SettingsIcon, Info, Shield, Activity, Zap, Plus, Lock, Command as CommandIcon, BarChart3, Search } from 'lucide-react'
+     7→import { api } from '@/lib/api-client'
+     8→import type { RealtimeMessage } from '@/lib/types'
+     9→import { useAppStore, type SectionId } from '@/lib/store'
+    10→import { useSocket } from '@/hooks/use-socket'
+    11→import { useBroadcastChannel } from '@/hooks/use-broadcast'
+    12→import { useSound } from '@/hooks/use-settings'
+    13→import { useI18n } from '@/hooks/use-i18n'
+    14→import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+    15→import { useServiceWorker } from '@/hooks/use-service-worker'
+    16→import { toast } from 'sonner'
+    17→import { ThemeToggle } from '@/components/theme-toggle'
+    18→import { SideDrawer } from '@/components/side-drawer'
+    19→import { CommandPalette } from '@/components/command-palette'
+    20→import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog'
+    21→import { Button } from '@/components/ui/button'
+    22→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+    23→import { InboxSection } from '@/components/sections/inbox-section'
+    24→import { MessagesSection } from '@/components/sections/messages-section'
+    25→import { AddressesSection } from '@/components/sections/addresses-section'
+    26→import { ComposeSection } from '@/components/sections/compose-section'
+    27→import { SettingsSection } from '@/components/sections/settings-section'
+    28→import { AboutSection } from '@/components/sections/about-section'
+    29→import { LegalSection } from '@/components/sections/legal-section'
+    30→import { AppLockSection, LockScreen, useAutoLock } from '@/components/sections/applock-section'
+    31→import { OnboardingOverlay } from '@/components/sections/onboarding-overlay'
+    32→import { PushNotificationPrompt } from '@/components/push-notification-prompt'
+    33→import { DpdpConsentBanner } from '@/components/dpdp-consent-banner'
+    34→import { AnalyticsSection } from '@/components/sections/analytics-section'
+    35→
+    36→const NAV_ITEMS: { id: SectionId; labelKey: string; icon: React.ComponentType<{ className?: string }> }[] = [
+    37→  { id: 'inbox', labelKey: 'nav.inbox', icon: Mail },
+    38→  { id: 'messages', labelKey: 'nav.messages', icon: Activity },
+    39→  { id: 'addresses', labelKey: 'nav.addresses', icon: AtSign },
+    40→  { id: 'compose', labelKey: 'nav.compose', icon: Plus },
+    41→  { id: 'analytics', labelKey: 'nav.analytics', icon: BarChart3 },
+    42→  { id: 'settings', labelKey: 'nav.settings', icon: SettingsIcon },
+    43→  { id: 'about', labelKey: 'nav.about', icon: Info },
+    44→]
+    45→
+    46→function InboxIcon() { return <Mail className="h-4 w-4" /> }
+    47→
+    48→export function AppShell() {
+    49→  const activeSection = useAppStore((s) => s.activeSection)
+    50→  const sectionParams = useAppStore((s) => s.sectionParams)
+    51→  const setActiveSection = useAppStore((s) => s.setActiveSection)
+    52→  const setDrawerOpen = useAppStore((s) => s.setDrawerOpen)
+    53→  const activeInboxId = useAppStore((s) => s.activeInboxId)
+    54→  const inboxes = useAppStore((s) => s.inboxes)
+    55→  const setInboxes = useAppStore((s) => s.setInboxes)
+    56→  const upsertInbox = useAppStore((s) => s.upsertInbox)
+    57→  const removeInbox = useAppStore((s) => s.removeInbox)
+    58→  const updateInbox = useAppStore((s) => s.updateInbox)
+    59→  const prependMessage = useAppStore((s) => s.prependMessage)
+    60→  const updateMessage = useAppStore((s) => s.updateMessage)
+    61→  const removeMessage = useAppStore((s) => s.removeMessage)
+    62→  const markFresh = useAppStore((s) => s.markFresh)
+    63→  const clearFresh = useAppStore((s) => s.clearFresh)
+    64→  const setActiveInboxId = useAppStore((s) => s.setActiveInboxId)
+    65→  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+    66→  const messages = useAppStore((s) => s.messages)
+    67→  const hasSeenOnboarding = useAppStore((s) => s.hasSeenOnboarding)
+    68→  const appLockEnabled = useAppStore((s) => s.appLockEnabled)
+    69→  const queryClient = useQueryClient()
+    70→  const sound = useSound()
+    71→  const { t } = useI18n()
+    72→
+    73→  // App-wide auto-lock: listens for page-visibility changes (tab backgrounded,
+    74→  // app minimized, screen off) and engages the lock screen when the configured
+    75→  // delay has elapsed. Also exposes `lockNow` for the header button.
+    76→  const { lockNow } = useAutoLock()
+    77→
+    78→  // Global keyboard shortcuts (g-prefix nav, copy / refresh / focus-search,
+    79→  // j/k message navigation, ⌘K palette, ? shortcuts help, Esc dismiss).
+    80→  // Internally suppresses shortcuts while typing in inputs (except ⌘K + Esc).
+    81→  useKeyboardShortcuts()
+    82→  useServiceWorker()
+    83→
+    84→  // Hydrate persisted UI flags from localStorage AFTER mount (avoids SSR hydration mismatch)
+    85→  // Per BUGFIX-INBOX-PERSISTENCE.md: restore, don't recreate
+    86→  useEffect(() => {
+    87→    if (typeof window === 'undefined') return
+    88→    try {
+    89→      const appLock = localStorage.getItem('studenttemp_applock') === '1'
+    90→      const onboarding = localStorage.getItem('studenttemp_onboarded') === '1'
+    91→      const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr' | 'or') || 'en'
+    92→      const pushDismissed = localStorage.getItem('studenttemp_push_dismissed') === '1'
+    93→      // Restore active inbox from localStorage (persists across tab close/reopen)
+    94→      const savedActiveInbox = localStorage.getItem('studenttemp_active_inbox')
+    95→      // Restore inbox mirror for instant UI display
+    96→      const savedMirror = localStorage.getItem('studenttemp_inbox_mirror')
+    97→      const inboxMirror = savedMirror ? JSON.parse(savedMirror) : null
+    98→
+    99→      useAppStore.setState({
+   100→        appLockEnabled: appLock,
+   101→        hasSeenOnboarding: onboarding,
+   102→        locale,
+   103→        pushPromptDismissed: pushDismissed,
+   104→        activeInboxId: savedActiveInbox || null,
+   105→        inboxMirror,
+   106→      })
+   107→      document.documentElement.lang = locale
+   108→
+   109→      // RC6: On PWA resume / visibility change → re-fetch inboxes from server (restore, don't recreate)
+   110→      const onVisibilityChange = () => {
+   111→        if (document.visibilityState === 'visible') {
+   112→          // Tab regained focus — re-validate session + inboxes from server
+   113→          queryClient.invalidateQueries({ queryKey: ['inboxes'] })
+   114→          queryClient.invalidateQueries({ queryKey: ['messages'] })
+   115→          queryClient.invalidateQueries({ queryKey: ['stats'] })
+   116→        }
+   117→      }
+   118→      document.addEventListener('visibilitychange', onVisibilityChange)
+   119→      return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+   120→    } catch {}
+   121→  }, [])
+   122→
+   123→  // Command palette + shortcuts help are driven by store state so both the
+   124→  // hook and the header ⌘K button can open them.
+   125→  const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
+   126→  const setGlobalSearchOpen = useAppStore((s) => s.setGlobalSearchOpen)
+   127→
+   128→  const { data: inboxesData } = useQuery({
+   129→    queryKey: ['inboxes'],
+   130→    queryFn: api.listInboxes,
+   131→    refetchInterval: 30_000,
+   132→  })
+   133→
+   134→  useEffect(() => {
+   135→    if (inboxesData?.inboxes) setInboxes(inboxesData.inboxes)
+   136→  }, [inboxesData, setInboxes])
+   137→
+   138→  useEffect(() => {
+   139→    if (!activeInboxId && inboxes.length > 0) {
+   140→      setActiveInboxId(inboxes[0].id)
+   141→    }
+   142→  }, [activeInboxId, inboxes, setActiveInboxId])
+   143→
+   144→  const activeInbox = useMemo(
+   145→    () => inboxes.find((i) => i.id === activeInboxId) || null,
+   146→    [inboxes, activeInboxId]
+   147→  )
+   148→
+   149→  const onMessage = useCallback((msg: RealtimeMessage) => {
+   150→    if (activeInbox && msg.inboxId === activeInbox.id) {
+   151→      prependMessage({
+   152→        id: msg.id,
+   153→        fromEmail: msg.fromEmail,
+   154→        fromName: msg.fromName,
+   155→        senderAddress: msg.fromEmail,
+   156→        senderDisplayName: msg.fromName,
+   157→        subject: msg.subject,
+   158→        previewText: msg.previewText,
+   159→        isRead: msg.isRead,
+   160→        isStarred: false,
+   161→        receivedAt: msg.receivedAt,
+   162→        category: msg.category,
+   163→        hasAttachment: msg.hasAttachment,
+   164→        scanStatus: msg.scanStatus,
+   165→        spf: msg.spf,
+   166→        dkim: msg.dkim,
+   167→        dmarc: msg.dmarc,
+   168→        externalResourcesBlocked: 0,
+   169→        isReported: false,
+   170→        sizeBytes: 0,
+   171→        publicId: msg.publicId,
+   172→      })
+   173→      markFresh(msg.id)
+   174→      setTimeout(() => clearFresh(), 2000)
+   175→      if (activeInbox._count) {
+   176→        updateInbox(activeInbox.id, { _count: { messages: (activeInbox._count.messages || 0) + 1 } })
+   177→      }
+   178→      if (typeof document !== 'undefined' && document.hidden) {
+   179→        const prev = document.title
+   180→        document.title = `(1) New mail — StudentTemp`
+   181→        const onVis = () => {
+   182→          document.title = prev
+   183→          document.removeEventListener('visibilitychange', onVis)
+   184→        }
+   185→        document.addEventListener('visibilitychange', onVis)
+   186→      }
+   187→      toast.success('New message arrived', {
+   188→        description: `${msg.fromName}: ${msg.subject}`,
+   189→        duration: 4000,
+   190→        action: {
+   191→          label: 'View',
+   192→          onClick: () => {
+   193→            // L2 (GAP-ANALYSIS-V2.md): if the app is currently locked, this
+   194→            // dispatch will be stashed as pendingNavigation and drained
+   195→            // after the user unlocks. Otherwise it routes to the Messages
+   196→            // section immediately and selects the new message.
+   197→            window.dispatchEvent(new CustomEvent('studenttemp:deep-link-request', {
+   198→              detail: { section: 'messages' },
+   199→            }))
+   200→          },
+   201→        },
+   202→      })
+   203→      sound.playNewMessage()
+   204→    }
+   205→    queryClient.invalidateQueries({ queryKey: ['stats'] })
+   206→  }, [activeInbox, prependMessage, markFresh, clearFresh, updateInbox, queryClient, sound])
+   207→
+   208→  const onInboxExpired = useCallback((data: { inboxId: string; email: string }) => {
+   209→    removeInbox(data.inboxId)
+   210→    if (data.inboxId === activeInboxId) {
+   211→      setActiveInboxId(null)
+   212→      setActiveSection('expired', { email: data.email })
+   213→    }
+   214→    toast.warning(`Inbox expired: ${data.email}`, { duration: 5000 })
+   215→    queryClient.invalidateQueries({ queryKey: ['inboxes'] })
+   216→    queryClient.invalidateQueries({ queryKey: ['stats'] })
+   217→  }, [removeInbox, activeInboxId, setActiveInboxId, setActiveSection, queryClient])
+   218→
+   219→  const { isConnected, subscribeInbox, triggerGenerate } = useSocket({
+   220→    onMessage,
+   221→    onInboxExpired,
+   222→  })
+   223→
+   224→  // Multi-tab sync via BroadcastChannel (WORKFLOWS.md H4)
+   225→  useBroadcastChannel(useCallback((payload) => {
+   226→    if (!payload) return
+   227→    if (payload.type === 'message:new') {
+   228→      // Don't double-toast in another tab; just prepend if it's the active inbox
+   229→      const msg = payload.msg
+   230→      if (activeInbox && msg.inboxId === activeInbox.id) {
+   231→        prependMessage({
+   232→          id: msg.id, fromEmail: msg.fromEmail, fromName: msg.fromName,
+   233→          senderAddress: msg.fromEmail, senderDisplayName: msg.fromName,
+   234→          subject: msg.subject, previewText: msg.previewText, isRead: false, isStarred: false,
+   235→          receivedAt: msg.receivedAt, category: msg.category, hasAttachment: msg.hasAttachment,
+   236→          scanStatus: msg.scanStatus, spf: msg.spf, dkim: msg.dkim, dmarc: msg.dmarc,
+   237→          externalResourcesBlocked: 0, isReported: false, sizeBytes: 0, publicId: msg.publicId,
+   238→        })
+   239→      }
+   240→    } else if (payload.type === 'message:updated') {
+   241→      updateMessage(payload.id, payload.patch)
+   242→    } else if (payload.type === 'message:deleted') {
+   243→      removeMessage(payload.id)
+   244→    } else if (payload.type === 'inbox:deleted') {
+   245→      removeInbox(payload.id)
+   246→    } else if (payload.type === 'inbox:expired') {
+   247→      onInboxExpired(payload.data)
+   248→    }
+   249→  }, [activeInbox, prependMessage, updateMessage, removeMessage, removeInbox, onInboxExpired]))
+   250→
+   251→  useEffect(() => {
+   252→    subscribeInbox(activeInbox?.email || null)
+   253→  }, [activeInbox?.email, subscribeInbox])
+   254→
+   255→  const unreadCount = useMemo(() => messages.filter((m) => !m.isRead).length, [messages])
+   256→
+   257→  const sections: Record<SectionId, React.ComponentType<{ triggerGenerate: (email: string) => void }>> = {
+   258→    inbox: InboxSection,
+   259→    messages: MessagesSection,
+   260→    addresses: AddressesSection,
+   261→    settings: SettingsSection,
+   262→    about: AboutSection,
+   263→    legal: LegalSection,
+   264→    applock: AppLockSection,
+   265→    expired: InboxSection, // expired reuses inbox section (shows generate CTA)
+   266→    onboarding: InboxSection,
+   267→    compose: ComposeSection,
+   268→    sessions: SettingsSection,
+   269→    analytics: AnalyticsSection,
+   270→  }
+   271→
+   272→  const ActiveSection = sections[activeSection] || InboxSection
+   273→
+   274→  const handleSectionClick = (id: SectionId) => {
+   275→    setActiveSection(id)
+   276→    if (id === 'messages') setOpenMessageId(null)
+   277→  }
+   278→
+   279→  return (
+   280→    <div className="min-h-screen flex flex-col bg-background">
+   281→      <OnboardingOverlay />
+   282→      {/* App-wide lock screen. Self-gates on `appLockEnabled && isLocked` so it
+   283→          is invisible unless the user has set up App Lock AND the lock is engaged.
+   284→          Mounted AFTER OnboardingOverlay so onboarding takes precedence on the
+   285→          very first run (lock is meaningless until a PIN exists). */}
+   286→      <LockScreen />
+   287→      <SideDrawer />
+   288→
+   289→      {/* Header */}
+   290→      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+   291→        <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
+   292→          <button
+   293→            onClick={() => setDrawerOpen(true)}
+   294→            className="md:hidden grid h-9 w-9 place-items-center rounded-lg hover:bg-accent transition-colors"
+   295→            aria-label="Open menu"
+   296→          >
+   297→            <Menu className="h-5 w-5" />
+   298→          </button>
+   299→          <button
+   300→            onClick={() => handleSectionClick('inbox')}
+   301→            className="flex items-center gap-2.5 shrink-0 group"
+   302→            aria-label="StudentTemp home"
+   303→          >
+   304→            <span className="relative grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-white shadow-sm shadow-emerald-500/30 transition-transform group-hover:scale-105">
+   305→              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+   306→                <path d="M4 6 L12 11 L20 6" />
+   307→                <rect x="3" y="5" width="18" height="14" rx="2" />
+   308→              </svg>
+   309→            </span>
+   310→            <div className="hidden sm:block leading-none">
+   311→              <div className="text-[15px] font-bold tracking-tight">
+   312→                Student<span className="text-gradient-brand">Temp</span>
+   313→              </div>
+   314→              <div className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Disposable Email</div>
+   315→            </div>
+   316→          </button>
+   317→
+   318→          <nav className="hidden md:flex items-center gap-1 ml-4" aria-label="Primary">
+   319→            {NAV_ITEMS.map((item) => {
+   320→              const active = activeSection === item.id
+   321→              return (
+   322→                <button
+   323→                  key={item.id}
+   324→                  onClick={() => handleSectionClick(item.id)}
+   325→                  className={`relative px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
+   326→                    active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+   327→                  }`}
+   328→                >
+   329→                  <span className="flex items-center gap-2">
+   330→                    <item.icon className="h-4 w-4" />
+   331→                    {t(item.labelKey)}
+   332→                    {item.id === 'messages' && unreadCount > 0 && (
+   333→                      <span className="grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+   334→                        {unreadCount}
+   335→                      </span>
+   336→                    )}
+   337→                  </span>
+   338→                  {active && (
+   339→                    <motion.span
+   340→                      layoutId="nav-underline"
+   341→                      className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
+   342→                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+   343→                    />
+   344→                  )}
+   345→                </button>
+   346→              )
+   347→            })}
+   348→          </nav>
+   349→
+   350→          <div className="ml-auto flex items-center gap-2">
+   351→            <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs">
+   352→              <span className={`relative flex h-2 w-2 ${isConnected ? '' : 'opacity-40'}`}>
+   353→                {isConnected && (
+   354→                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+   355→                )}
+   356→                <span className={`relative inline-flex h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+   357→              </span>
+   358→              <span className="text-muted-foreground font-medium">{isConnected ? 'Live' : 'Connecting'}</span>
+   359→            </div>
+   360→            <TooltipProvider delayDuration={300}>
+   361→              <Tooltip>
+   362→                <TooltipTrigger asChild>
+   363→                  <Button
+   364→                    variant="outline"
+   365→                    size="sm"
+   366→                    onClick={() => setCommandPaletteOpen(true)}
+   367→                    className="hidden md:inline-flex h-9 gap-2 pr-2 pl-2.5 text-muted-foreground hover:text-foreground"
+   368→                    aria-label="Open command palette"
+   369→                  >
+   370→                    <CommandIcon className="h-4 w-4 text-emerald-500" />
+   371→                    <span className="text-xs">Search</span>
+   372→                    <kbd className="ml-1 inline-flex h-5 items-center gap-0.5 rounded border border-border/70 bg-muted px-1 font-mono text-[10px] tracking-wider text-muted-foreground">
+   373→                      ⌘K
+   374→                    </kbd>
+   375→                  </Button>
+   376→                </TooltipTrigger>
+   377→                <TooltipContent side="bottom" className="text-xs">
+   378→                  Open command palette (⌘K)
+   379→                </TooltipContent>
+   380→              </Tooltip>
+   381→            </TooltipProvider>
+   382→            <button
+   383→              onClick={() => setGlobalSearchOpen(true)}
+   384→              className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+   385→              aria-label="Search all inboxes"
+   386→              title="Search all inboxes"
+   387→            >
+   388→              <Search className="h-4 w-4" />
+   389→            </button>
+   390→            <ThemeToggle />
+   391→            {appLockEnabled && (
+   392→              <button
+   393→                onClick={lockNow}
+   394→                className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 hover:bg-accent transition-colors text-emerald-600 dark:text-emerald-400"
+   395→                aria-label="Lock now"
+   396→                title="Lock now"
+   397→              >
+   398→                <Lock className="h-4 w-4" />
+   399→              </button>
+   400→            )}
+   401→          </div>
+   402→        </div>
+   403→
+   404→        {/* Mobile nav (horizontal scroll) */}
+   405→        <nav className="md:hidden flex items-center gap-1 overflow-x-auto no-scrollbar px-3 pb-2" aria-label="Mobile primary">
+   406→          {NAV_ITEMS.map((item) => {
+   407→            const active = activeSection === item.id
+   408→            return (
+   409→              <button
+   410→                key={item.id}
+   411→                onClick={() => handleSectionClick(item.id)}
+   412→                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+   413→                  active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent/50'
+   414→                }`}
+   415→              >
+   416→                <item.icon className="h-3.5 w-3.5" />
+   417→                {t(item.labelKey)}
+   418→                {item.id === 'messages' && unreadCount > 0 && (
+   419→                  <span className="grid h-4 min-w-4 place-items-center rounded-full bg-background text-primary text-[10px] font-bold px-1">
+   420→                    {unreadCount}
+   421→                  </span>
+   422→                )}
+   423→              </button>
+   424→            )
+   425→          })}
+   426→        </nav>
+   427→      </header>
+   428→
+   429→      <main className="flex-1 mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
+   430→        {/* Offline banner — per BUGFIX decision tree: server unreachable → cached state */}
+   431→        <AnimatePresence>
+   432→          {!isConnected && (
+   433→            <motion.div
+   434→              initial={{ opacity: 0, y: -8 }}
+   435→              animate={{ opacity: 1, y: 0 }}
+   436→              exit={{ opacity: 0, y: -8 }}
+   437→              className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2"
+   438→            >
+   439→              <span className="relative flex h-2 w-2">
+   440→                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+   441→                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+   442→              </span>
+   443→              Showing last known state — reconnecting…
+   444→            </motion.div>
+   445→          )}
+   446→        </AnimatePresence>
+   447→        <AnimatePresence mode="wait">
+   448→          <motion.div
+   449→            key={activeSection + JSON.stringify(sectionParams)}
+   450→            initial={{ opacity: 0, x: 12 }}
+   451→            animate={{ opacity: 1, x: 0 }}
+   452→            exit={{ opacity: 0, x: -8 }}
+   453→            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+   454→          >
+   455→            <ActiveSection triggerGenerate={triggerGenerate} />
+   456→          </motion.div>
+   457→        </AnimatePresence>
+   458→      </main>
+   459→
+   460→      <footer className="mt-auto border-t border-border/60 bg-muted/20">
+   461→        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
+   462→          <div className="flex items-center gap-2 text-muted-foreground">
+   463→            <Shield className="h-4 w-4 text-emerald-500" />
+   464→            <span>Privacy-first · No tracking · No sign-up</span>
+   465→          </div>
+   466→          <div className="flex items-center gap-4 text-muted-foreground">
+   467→            <span className="flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" /> Real-time</span>
+   468→            <span className="flex items-center gap-1.5"><Activity className="h-3.5 w-3.5" /> {inboxes.length} active</span>
+   469→          </div>
+   470→          <div className="text-xs text-foreground/70 font-medium">
+   471→            This is a private temporary address, not an official institution email.
+   472→          </div>
+   473→        </div>
+   474→      </footer>
+   475→
+   476→      {/* Command palette (⌘K) + keyboard shortcuts help (?) — driven by store state */}
+   477→      <CommandPalette />
+   478→      <KeyboardShortcutsDialog />
+   479→
+   480→      {/* Web Push notification pre-prompt (MOTION-SYSTEM.md §15) */}
+   481→      <PushNotificationPrompt />
+   482→
+   483→      {/* DPDP consent notice (GAP H9) */}
+   484→      <DpdpConsentBanner />
+   485→
+   486→      {/* Global search dialog — searches across all inboxes */}
+   487→      <GlobalSearchInline />
+   488→    </div>
+   489→  )
+   490→}
+   491→
+   492→// ---------- Inline Global Search Dialog ----------
+   493→function GlobalSearchInline() {
+   494→  const open = useAppStore((s) => s.globalSearchOpen)
+   495→  const setOpen = useAppStore((s) => s.setGlobalSearchOpen)
+   496→  const setActiveInboxId = useAppStore((s) => s.setActiveInboxId)
+   497→  const setActiveSection = useAppStore((s) => s.setActiveSection)
+   498→  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+   499→  const [query, setQuery] = useState('')
+   500→
+   501→  const { data, isFetching } = useQuery({
+   502→    queryKey: ['global-search', query],
+   503→    queryFn: async () => {
+   504→      if (!query || query.length < 2) return { results: [] as Array<Record<string, unknown>>, total: 0 }
+   505→      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
+   506→      if (!res.ok) throw new Error('Search failed')
+   507→      return res.json() as Promise<{ results: Array<Record<string, unknown>>; total: number }>
+   508→    },
+   509→    enabled: query.length >= 2,
+   510→    staleTime: 10_000,
+   511→  })
+   512→
+   513→  const handleSelect = useCallback((result: Record<string, unknown>) => {
+   514→    setActiveInboxId(result.inboxId as string)
+   515→    setActiveSection('messages')
+   516→    setTimeout(() => setOpenMessageId(result.id as string), 100)
+   517→    setOpen(false)
+   518→  }, [setActiveInboxId, setActiveSection, setOpenMessageId, setOpen])
+   519→
+   520→  const results = data?.results || []
+   521→
+   522→  return (
+   523→    <AnimatePresence>
+   524→      {open && (
+   525→        <motion.div
+   526→          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+   527→          className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4 bg-black/50 backdrop-blur-sm"
+   528→          onClick={() => setOpen(false)}
+   529→        >
+   530→          <motion.div
+   531→            initial={{ opacity: 0, scale: 0.96, y: -12 }}
+   532→            animate={{ opacity: 1, scale: 1, y: 0 }}
+   533→            exit={{ opacity: 0, scale: 0.96, y: -12 }}
+   534→            transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+   535→            className="w-full max-w-2xl rounded-2xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+   536→            onClick={(e) => e.stopPropagation()}
+   537→            role="dialog" aria-label="Global search"
+   538→          >
+   539→            <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
+   540→              <Search className="h-5 w-5 text-muted-foreground shrink-0" />
+   541→              <input
+   542→                type="text" value={query}
+   543→                onChange={(e) => setQuery(e.target.value)}
+   544→                placeholder="Search across all your inboxes…"
+   545→                className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
+   546→                autoFocus autoComplete="off" spellCheck={false}
+   547→              />
+   548→              {query && (
+   549→                <button onClick={() => setQuery('')} className="text-muted-foreground hover:text-foreground" aria-label="Clear">
+   550→                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+   551→                </button>
+   552→              )}
+   553→            </div>
+   554→            <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+   555→              {query.length < 2 ? (
+   556→                <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+   557→                  Type at least 2 characters to search across all your inboxes.
+   558→                </div>
+   559→              ) : isFetching ? (
+   560→                <div className="px-4 py-8 text-center text-sm text-muted-foreground">Searching…</div>
+   561→              ) : results.length === 0 ? (
+   562→                <div className="px-4 py-12 text-center text-sm text-muted-foreground">No messages found for "{query}"</div>
+   563→              ) : (
+   564→                <div className="py-2">
+   565→                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+   566→                    {results.length} {results.length === 1 ? 'result' : 'results'}
+   567→                  </div>
+   568→                  {results.map((result) => (
+   569→                    <button
+   570→                      key={result.id as string}
+   571→                      onClick={() => handleSelect(result)}
+   572→                      className="w-full text-left px-4 py-3 hover:bg-accent/50 transition-colors"
+   573→                    >
+   574→                      <div className="flex items-start gap-3">
+   575→                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-xs">
+   576→                          {(result.fromName as string)?.[0]?.toUpperCase() || '?'}
+   577→                        </div>
+   578→                        <div className="flex-1 min-w-0">
+   579→                          <div className="flex items-center justify-between gap-2">
+   580→                            <span className="text-sm font-medium truncate">{highlightMatch(result.fromName as string, query)}</span>
+   581→                            <span className="text-[11px] text-muted-foreground shrink-0 font-mono">{result.inboxEmail as string}</span>
+   582→                          </div>
+   583→                          <p className="mt-0.5 text-sm truncate font-semibold">{highlightMatch(result.subject as string, query)}</p>
+   584→                          <p className="mt-0.5 text-xs text-muted-foreground truncate">{highlightMatch(result.previewText as string, query)}</p>
+   585→                        </div>
+   586→                      </div>
+   587→                    </button>
+   588→                  ))}
+   589→                </div>
+   590→              )}
+   591→            </div>
+   592→          </motion.div>
+   593→        </motion.div>
+   594→      )}
+   595→    </AnimatePresence>
+   596→  )
+   597→}
+   598→
+   599→// ---------- Search result highlighting ----------
+   600→function highlightMatch(text: string, query: string): ReactNode {
+   601→  if (!query || !text) return text
+   602→  const lower = text.toLowerCase()
+   603→  const q = query.toLowerCase()
+   604→  const idx = lower.indexOf(q)
+   605→  if (idx === -1) return text
+   606→  return (
+   607→    <>
+   608→      {text.slice(0, idx)}
+   609→      <mark className="bg-emerald-500/25 text-emerald-800 dark:text-emerald-200 rounded px-0.5 font-semibold">
+   610→        {text.slice(idx, idx + q.length)}
+   611→      </mark>
+   612→      {text.slice(idx + q.length)}
+   613→    </>
+   614→  )
+   615→}
+   616→

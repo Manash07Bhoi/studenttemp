@@ -286,7 +286,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div className="rounded-lg bg-muted/40 p-3">
                     <div className="text-muted-foreground text-[10px] uppercase tracking-wider mb-1">Domain</div>
-                    <div className="font-semibold truncate" title={typeof activeInbox.domain === 'string' ? activeInbox.domain : activeInbox.domain?.domain}>{typeof activeInbox.domain === 'string' ? activeInbox.domain : activeInbox.domain?.domain || activeInbox.domain}</div>
+                    <div className="font-semibold truncate" title={typeof activeInbox.domain === 'string' ? activeInbox.domain : (activeInbox.domain?.domain ?? '')}>{typeof activeInbox.domain === 'string' ? activeInbox.domain : (activeInbox.domain?.domain ?? '')}</div>
                   </div>
                   <div className="rounded-lg bg-muted/40 p-3">
                     <div className="text-muted-foreground text-[10px] uppercase tracking-wider mb-1">Created</div>
@@ -544,7 +544,7 @@ function CustomizeDialog({
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  domains: Array<{ domain: string; label: string; badge: string; popular: boolean }>
+  domains: Array<{ domain: string; label: string; badge: string; popular: boolean; pack?: string; country?: string; category?: string }>
   lifetimeOptions: Array<{ value: number; label: string; default?: boolean }>
   categories: Array<{ value: string; label: string; desc: string }>
   onCreated: (inbox: Inbox) => void

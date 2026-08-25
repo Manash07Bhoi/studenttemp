@@ -15,9 +15,9 @@ export const FALLBACK_DOMAINS = [
   { domain: 'quickmail.in', label: 'QuickMail', badge: '', popular: false, pack: 'standard', country: 'india', category: 'general' },
 ] as const
 
-export async function getDomains() {
+export async function getDomains(): Promise<import('@/lib/types').DomainInfo[]> {
   const rows = await db.domain.findMany({ where: { active: true }, orderBy: { reputationScore: 'desc' } })
-  if (rows.length === 0) return FALLBACK_DOMAINS
+  if (rows.length === 0) return FALLBACK_DOMAINS as unknown as import('@/lib/types').DomainInfo[]
   return rows.map((d) => {
     const label = d.domain.split('.')[0].charAt(0).toUpperCase() + d.domain.split('.')[0].slice(1)
     let badge = ''
