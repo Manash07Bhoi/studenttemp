@@ -201,6 +201,9 @@ async function ingestMessage(opts: {
   const senderDisplayName = parsed.from?.value?.[0]?.name || undefined
   const subject = parsed.subject || '(no subject)'
   const smtpMessageId = parsed.messageId || null
+  // G1: Extract References / In-Reply-To headers for proper threading
+  const inReplyTo = parsed.headers?.get('in-reply-to') || null
+  const references = parsed.headers?.get('references') || null
   const sizeBytes = rawMail.length
 
   // ---------- Persist message ----------
@@ -221,7 +224,14 @@ async function ingestMessage(opts: {
       authSpf: spfResult.result,
       authDkim: dkimResult.result,
       authDmarc: dmarcResult.result,
-      authDetails: JSON.stringify({ spf: spfResult.details, dkim: dkimResult.details, dmarc: dmarcResult.details }),
+      authDetails: JSON.stringify({
+        spf: spfResult.details,
+        dkim: dkimResult.details,
+        dmarc: dmarcResult.details,
+        // G1: Threading headers stored for conversation grouping
+        inReplyTo,
+        references,
+      }),
       // GAP G10: Spam scoring heuristics (rule-based, not fake AI)
       scanStatus: (() => {
         let spamScore = 0

@@ -1069,6 +1069,13 @@ function MessageReader({
   const senderDomain = messageSummary.fromEmail.split('@')[1] || ''
   const displayNameLooksLikeDomain = /\.[a-z]{2,}$/i.test(messageSummary.fromName) &&
     messageSummary.fromName !== senderDomain
+  // G10: Spam warning — if scanStatus is 'quarantined' or auth fails + urgency keywords
+  const isQuarantined = messageSummary.scanStatus === 'quarantined'
+  const isSuspicious = !isQuarantined && authFail && /urgent|verify|suspended|account|confirm|click here|limited time/i.test(messageSummary.subject + ' ' + messageSummary.previewText)
+  // G8: Importance marker — if sender is NOT a known bulk/noreply pattern + direct To: (not bulk)
+  const isImportant = !isQuarantined && !authFail &&
+    !/noreply|no-reply|donotreply|newsletter|notification|alert|automated/i.test(messageSummary.fromEmail) &&
+    !/unsubscribe|list-id|precedence:\s*bulk/i.test(messageSummary.previewText)
 
   const sanitizedHtml = useMemo(() => {
     if (!full?.bodyHtml) return ''
@@ -1177,6 +1184,11 @@ function MessageReader({
                 </Badge>
               )}
               <Badge variant="outline" className={cn('text-[10px]', cat.color)}>{cat.label}</Badge>
+              {isImportant && (
+                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+                  <AlertTriangle className="h-2.5 w-2.5" /> Important
+                </Badge>
+              )}
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground font-mono break-all">&lt;{messageSummary.fromEmail}&gt;</p>
             <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
@@ -1226,6 +1238,21 @@ function MessageReader({
           </div>
         )}
       </div>
+
+      {/* G10: Spam warning banner — borderline suspicious */}
+      {isSuspicious && (
+        <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>This message looks suspicious — authentication checks failed and urgency keywords detected.</span>
+        </div>
+      )}
+      {/* G10: Quarantined banner */}
+      {isQuarantined && (
+        <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2.5 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+          <Ban className="h-4 w-4 shrink-0" />
+          <span>This message was flagged by spam detection and quarantined. Exercise caution.</span>
+        </div>
+      )}
 
       {/* External resources blocked banner */}
       {messageSummary.externalResourcesBlocked > 0 && !imagesLoaded && (

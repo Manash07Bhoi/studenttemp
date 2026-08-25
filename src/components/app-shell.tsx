@@ -105,6 +105,18 @@ export function AppShell() {
         inboxMirror,
       })
       document.documentElement.lang = locale
+
+      // RC6: On PWA resume / visibility change → re-fetch inboxes from server (restore, don't recreate)
+      const onVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          // Tab regained focus — re-validate session + inboxes from server
+          queryClient.invalidateQueries({ queryKey: ['inboxes'] })
+          queryClient.invalidateQueries({ queryKey: ['messages'] })
+          queryClient.invalidateQueries({ queryKey: ['stats'] })
+        }
+      }
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      return () => document.removeEventListener('visibilitychange', onVisibilityChange)
     } catch {}
   }, [])
 
@@ -403,6 +415,23 @@ export function AppShell() {
       </header>
 
       <main className="flex-1 mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
+        {/* Offline banner — per BUGFIX decision tree: server unreachable → cached state */}
+        <AnimatePresence>
+          {!isConnected && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+              </span>
+              Showing last known state — reconnecting…
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeSection + JSON.stringify(sectionParams)}
