@@ -67,6 +67,10 @@ export const api = {
     req<{ ok: boolean }>('/api/notifications/subscribe', {
       method: 'DELETE', body: JSON.stringify({ endpoint }),
     }),
+  sendPushNotification: (data: { title: string; body: string; inboxId?: string }) =>
+    req<{ ok: boolean; sent: number; failed: number }>('/api/notifications/send', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
 
   getLegal: (doc: string) => req<LegalDoc>(`/api/legal/${doc}`),
 
