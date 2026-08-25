@@ -409,7 +409,7 @@ const smtp = new SMTPServer({
   },
 })
 
-smtp.listen(SMTP_PORT, () => {
+smtp.listen(SMTP_PORT, '0.0.0.0', () => {
   console.log(`[mail-service] REAL SMTP server listening on port ${SMTP_PORT}`)
   console.log(`[mail-service] Socket.IO on port 3003`)
   console.log(`[mail-service] Accepting mail for: studentbox.in, campusmail.in, examprep.in, devtest.in, quickmail.in`)
