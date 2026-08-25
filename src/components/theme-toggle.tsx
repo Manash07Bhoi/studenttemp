@@ -37,12 +37,10 @@ export function ThemeToggle() {
     const x = rect.left + rect.width / 2
     const y = rect.top + rect.height / 2
     const endRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))
-    // @ts-expect-error - ViewTransition API is not in TS lib yet
     if (!document.startViewTransition) {
       setTheme(next)
       return
     }
-    // @ts-expect-error - ViewTransition API
     const transition = document.startViewTransition(() => setTheme(next))
     transition.ready.then(() => {
       const clipPath = [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`]

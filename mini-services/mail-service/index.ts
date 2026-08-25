@@ -24,7 +24,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { JSDOM } from 'jsdom'
 import createDOMPurify from 'dompurify'
-import { scanFile } from '../../src/lib/file-scanner.ts'
+import { scanFile } from '../../src/lib/file-scanner'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -536,14 +536,20 @@ setInterval(async () => {
         }
       }
       // Mark expired + record custom alias cooldown (5 min anti-squatting)
+      // Also store lastUsedBySessionHash so L4 same-session reclaim exception works
       await db.inbox.update({ where: { id: inbox.id }, data: { status: 'expired' } })
+      const sessionHashForCooldown = inbox.sessionId ? createHash('sha256').update(inbox.sessionId).digest('hex') : null
       await db.customAlias.upsert({
         where: { localPart_domainId: { localPart: inbox.localPart, domainId: inbox.domainId } },
-        update: { cooldownUntil: new Date(now.getTime() + 5 * 60 * 1000) },
+        update: {
+          cooldownUntil: new Date(now.getTime() + 5 * 60 * 1000),
+          ...(sessionHashForCooldown ? { lastUsedBySessionHash: sessionHashForCooldown } : {}),
+        },
         create: {
           localPart: inbox.localPart,
           domainId: inbox.domainId,
           cooldownUntil: new Date(now.getTime() + 5 * 60 * 1000),
+          ...(sessionHashForCooldown ? { lastUsedBySessionHash: sessionHashForCooldown } : {}),
         },
       })
     }
@@ -559,6 +565,41 @@ setInterval(async () => {
     }
     if (expired.length) {
       console.log(`[mail-service] marked ${expired.length} inboxes expired`)
+    }
+
+    // ---------- L5: Account deletion purge sweep ----------
+    // Permanently delete accounts whose grace_deletion window has expired.
+    // This actually removes the data (GDPR/DPDP compliance) — without this,
+    // accounts stay in grace_deletion forever and data is never truly deleted.
+    const graceExpired = await db.account.findMany({
+      where: {
+        status: 'grace_deletion',
+        deletionScheduledAt: { lt: now },
+      },
+      select: { id: true, email: true },
+    })
+    for (const account of graceExpired) {
+      // Delete all related data in the correct order (FK constraints)
+      await db.attachment.deleteMany({
+        where: { message: { inbox: { accountId: account.id } } },
+      })
+      await db.message.deleteMany({
+        where: { inbox: { accountId: account.id } },
+      })
+      await db.inbox.deleteMany({ where: { accountId: account.id } })
+      await db.label.deleteMany({ where: { accountId: account.id } })
+      await db.filter.deleteMany({ where: { accountId: account.id } })
+      await db.contact.deleteMany({ where: { accountId: account.id } })
+      await db.draft.deleteMany({ where: { accountId: account.id } })
+      await db.sentMessage.deleteMany({ where: { accountId: account.id } })
+      await db.accountAlias.deleteMany({ where: { accountId: account.id } })
+      await db.loginSession.deleteMany({ where: { accountId: account.id } })
+      await db.backupCode.deleteMany({ where: { accountId: account.id } })
+      await db.vacationResponder.deleteMany({ where: { accountId: account.id } })
+      await db.appPassword.deleteMany({ where: { accountId: account.id } })
+      await db.auditLog.deleteMany({ where: { accountId: account.id } })
+      await db.account.delete({ where: { id: account.id } })
+      console.log(`[mail-service] L5: permanently deleted account ${account.email} (grace period expired)`)
     }
   } catch (e) {
     console.error('[mail-service] expiry sweep error:', e)

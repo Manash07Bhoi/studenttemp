@@ -13,6 +13,7 @@ import {
   rateLimit,
   getClientIp,
   auditLog,
+  hashToken,
 } from '@/lib/mail-utils'
 
 export async function GET(req: NextRequest) {
@@ -71,10 +72,20 @@ export async function POST(req: NextRequest) {
       where: { localPart_domainId: { localPart: normalized, domainId: domainRow.id } },
     })
     if (aliasLedger?.cooldownUntil && aliasLedger.cooldownUntil > new Date()) {
-      return NextResponse.json(
-        { error: `This custom alias is in a cooldown period until ${aliasLedger.cooldownUntil.toLocaleTimeString()}. Try again later.` },
-        { status: 409 }
-      )
+      // L4 exception: the SAME session that previously owned this alias can reclaim it
+      // (prevents a user from being locked out of their own recently-expired alias)
+      const sessionHash = hashToken(sessionId)
+      if (aliasLedger.lastUsedBySessionHash !== sessionHash) {
+        return NextResponse.json(
+          { error: `This custom alias is in a cooldown period until ${aliasLedger.cooldownUntil.toLocaleTimeString()}. Try again later.` },
+          { status: 409 }
+        )
+      }
+      // Same session — allow reclaim, clear the cooldown
+      await db.customAlias.update({
+        where: { localPart_domainId: { localPart: normalized, domainId: domainRow.id } },
+        data: { cooldownUntil: null },
+      })
     }
     localPart = normalized
     isCustom = true
@@ -126,6 +137,20 @@ export async function POST(req: NextRequest) {
     },
     include: { domain: true, _count: { select: { messages: true } } },
   })
+
+  // For custom aliases: record which session claimed it, so L4 same-session
+  // reclaim exception can work when the alias later expires and enters cooldown.
+  if (isCustom) {
+    await db.customAlias.upsert({
+      where: { localPart_domainId: { localPart, domainId: domainRow.id } },
+      update: { lastUsedBySessionHash: hashToken(sessionId), cooldownUntil: null },
+      create: {
+        localPart,
+        domainId: domainRow.id,
+        lastUsedBySessionHash: hashToken(sessionId),
+      },
+    })
+  }
 
   await auditLog({ sessionId, action: 'inbox.create', targetType: 'inbox', targetId: inbox.id, metadata: { email }, ip })
 

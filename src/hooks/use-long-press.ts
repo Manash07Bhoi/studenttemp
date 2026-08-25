@@ -47,7 +47,7 @@ export function useLongPress(opts: {
     }
   }, [moveTolerance])
 
-  const clear = useCallback(() => {
+  const clear = useCallback((_e?: React.PointerEvent) => {
     if (timerRef.current) {
       clearTimeout(timerRef.current)
       timerRef.current = null

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface DrawerItem {
-  id: SectionId | 'theme-dark' | 'external-link'
+  id: SectionId | 'theme-dark' | 'external-link' | 'about-faq' | 'about-info' | 'legal-privacy' | 'legal-terms' | 'legal-abuse'
   label: string
   icon: typeof Home
   section?: SectionId
