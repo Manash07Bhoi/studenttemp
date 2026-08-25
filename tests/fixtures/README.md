@@ -13,7 +13,7 @@ This harness is for **dev-only** SMTP testing against real mail flows.
 ## Usage
 
 ```bash
-# 1. Create an inbox via the UI (http://localhost:81 → Generate)
+# 1. Create an inbox via the UI (https://localhost:81 → Generate)
 # 2. Send a real test email to it:
 bun tests/fixtures/send-test-mail.ts student-xxxxx@studentbox.in "Test subject" "Body"
 ```

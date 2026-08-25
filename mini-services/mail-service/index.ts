@@ -45,10 +45,34 @@ const ATTACHMENT_DIR = join(__dirname, '.attachments')
 if (!existsSync(ATTACHMENT_DIR)) mkdirSync(ATTACHMENT_DIR, { recursive: true })
 
 // ---------- Socket.IO (port 3003) ----------
+// CORS policy: only the StudentTemp origin (and Caddy gateway) may connect.
+// We allow both the configured PUBLIC_BASE_URL and loopback dev origins so
+// local dev (`localhost:3000`, `localhost:81`) still works.
+const ALLOWED_SOCKET_ORIGINS = (process.env.PUBLIC_BASE_URL || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .concat([
+    // Dev origins (Caddy reverse proxy with tls internal — always HTTPS)
+    'https://localhost:81',
+    'https://127.0.0.1:81',
+    // Direct Next.js (no proxy — plain HTTP, only for local development)
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ])
+
 const httpServer = createServer()
 const io = new Server(httpServer, {
   path: '/',
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  // Restrict to our origins. No more `origin: '*'` — this prevents
+  // cross-origin WebSocket hijacking from malicious pages.
+  cors: {
+    origin: ALLOWED_SOCKET_ORIGINS,
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
+  // Allow large MIME bodies through the Socket.IO channel.
+  maxHttpBufferSize: 5 * 1024 * 1024,
   pingTimeout: 60000,
   pingInterval: 25000,
 })

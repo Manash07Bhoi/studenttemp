@@ -86,8 +86,12 @@ export default function RootLayout({
         {/* Preconnect to font origin for faster font loading */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        {/* DNS prefetch for external resources */}
-        <link rel="dns-prefetch" href="http://localhost:3003" />
+        {/* DNS prefetch for the Socket.IO gateway — served via Caddy on HTTPS.
+            We point at the same-origin HTTPS URL so the browser reuses the TLS
+            session instead of opening a plain-HTTP socket (which would be a
+            mixed-content violation). */}
+        <link rel="dns-prefetch" href="/" />
+        <link rel="preconnect" href="/" crossOrigin="anonymous" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground min-h-screen`}

@@ -127,6 +127,6 @@ export async function POST(req: NextRequest) {
       displayName: account.displayName,
     },
   }, { status: 201 })
-  res.headers.set('set-cookie', setAccountCookie(sessionToken))
+  res.headers.set('set-cookie', setAccountCookie(sessionToken, req))
   return res
 }

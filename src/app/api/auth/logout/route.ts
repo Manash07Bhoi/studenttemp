@@ -14,6 +14,6 @@ export async function POST(req: NextRequest) {
     })
   }
   const res = NextResponse.json({ ok: true })
-  res.headers.set('set-cookie', clearAccountCookie())
+  res.headers.set('set-cookie', clearAccountCookie(req))
   return res
 }

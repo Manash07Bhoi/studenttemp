@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Recovery code not found or expired' }, { status: 404 })
   }
   // Mint a NEW token (recovery code stays the same; we just set a fresh cookie value = the same code)
-  const setCookie = `${SESSION_COOKIE}=${code}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_COOKIE_MAX_AGE}`
+  const isSecure = req.headers.get('x-forwarded-proto') === 'https'
+    || process.env.NODE_ENV === 'production'
+  const secureFlag = isSecure ? '; Secure' : ''
+  const setCookie = `${SESSION_COOKIE}=${code}; Path=/; HttpOnly; SameSite=Strict${secureFlag}; Max-Age=${SESSION_COOKIE_MAX_AGE}`
   return NextResponse.json({ ok: true, sessionId: session.id, setCookie })
 }

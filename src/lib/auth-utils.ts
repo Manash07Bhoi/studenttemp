@@ -50,12 +50,38 @@ export async function createAccountSession(accountId: string, ipHash?: string, d
   return token
 }
 
-export function setAccountCookie(token: string): string {
-  return `${ACCOUNT_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${ACCOUNT_COOKIE_MAX_AGE}`
+/**
+ * Whether the request should mark cookies as `Secure`.
+ *
+ * We set `Secure` whenever the deployment is reachable over HTTPS:
+ *  - In production: always.
+ *  - In development: only when the request actually arrived over TLS
+ *    (Caddy fronts the dev server with `tls internal`). When developing
+ *    without the proxy (direct :3000), `Secure` is omitted so the
+ *    HttpOnly cookie still reaches the browser.
+ *
+ * Detection: we trust `X-Forwarded-Proto` ONLY when it comes from our
+ * Caddy reverse proxy (loopback peer). See `src/middleware.ts`.
+ */
+function shouldSetSecure(req?: Request): boolean {
+  if (process.env.NODE_ENV === 'production') return true
+  if (!req) return false
+  const xff = req.headers.get('x-forwarded-for') || ''
+  const peer = xff.split(',').pop()?.trim()
+  const trusted = peer === '127.0.0.1' || peer === '::1' || peer === 'localhost'
+  if (!trusted) return false
+  const proto = req.headers.get('x-forwarded-proto')
+  return proto === 'https'
 }
 
-export function clearAccountCookie(): string {
-  return `${ACCOUNT_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`
+export function setAccountCookie(token: string, req?: Request): string {
+  const secure = shouldSetSecure(req) ? '; Secure' : ''
+  return `${ACCOUNT_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict${secure}; Max-Age=${ACCOUNT_COOKIE_MAX_AGE}`
+}
+
+export function clearAccountCookie(req?: Request): string {
+  const secure = shouldSetSecure(req) ? '; Secure' : ''
+  return `${ACCOUNT_COOKIE}=; Path=/; HttpOnly; SameSite=Strict${secure}; Max-Age=0`
 }
 
 export const ACCOUNT_COOKIE_NAME = ACCOUNT_COOKIE
