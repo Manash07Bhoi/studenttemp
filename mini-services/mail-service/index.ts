@@ -31,6 +31,21 @@ const __dirname = dirname(__filename)
 
 const db = new PrismaClient({ log: ['error', 'warn'] })
 
+// Resilience: never let an uncaught error kill the service.
+// SMTP connections from buggy clients, malformed MIME, or transient DNS
+// failures must NOT bring the whole mail-service down (it would block
+// real-time push for every connected browser).
+process.on('uncaughtException', (err) => {
+  console.error('[mail-service][FATAL] uncaughtException:', err?.stack || err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[mail-service][FATAL] unhandledRejection:', reason)
+})
+process.on('SIGTERM', () => {
+  console.log('[mail-service] SIGTERM received, shutting down gracefully')
+  process.exit(0)
+})
+
 // DOMPurify for server-side HTML sanitization
 const window = new JSDOM('').window
 const DOMPurify = createDOMPurify(window)
