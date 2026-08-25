@@ -187,6 +187,18 @@ export function AppShell() {
       toast.success('New message arrived', {
         description: `${msg.fromName}: ${msg.subject}`,
         duration: 4000,
+        action: {
+          label: 'View',
+          onClick: () => {
+            // L2 (GAP-ANALYSIS-V2.md): if the app is currently locked, this
+            // dispatch will be stashed as pendingNavigation and drained
+            // after the user unlocks. Otherwise it routes to the Messages
+            // section immediately and selects the new message.
+            window.dispatchEvent(new CustomEvent('studenttemp:deep-link-request', {
+              detail: { section: 'messages' },
+            }))
+          },
+        },
       })
       sound.playNewMessage()
     }

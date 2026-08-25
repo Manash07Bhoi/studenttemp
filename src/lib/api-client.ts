@@ -4,6 +4,28 @@ import type {
   AnalyticsResponse,
 } from './types'
 
+/**
+ * ApiError — extends the standard Error with the server-provided `code` field
+ * (e.g. 'INBOX_EXPIRED', 'INBOX_NOT_FOUND') and the HTTP `status`. Lets calling
+ * code distinguish recoverable "not found" 404s from "expired" 410s without
+ * parsing message strings.
+ *
+ * Per GAP-ANALYSIS-V2.md L1: when a request is in-flight exactly as an inbox
+ * expires, the server returns `{ code: 'INBOX_EXPIRED' }` with status 410 —
+ * the client uses this code to transition straight to the Expired screen
+ * instead of showing a generic error/retry UI.
+ */
+export class ApiError extends Error {
+  code?: string
+  status: number
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -12,7 +34,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     const msg = (data && (data.error || data.message)) || `Request failed (${res.status})`
-    throw new Error(msg)
+    throw new ApiError(msg, res.status, data?.code)
   }
   return data as T
 }

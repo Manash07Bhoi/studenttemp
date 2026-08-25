@@ -56,6 +56,13 @@ interface AppState {
   appLockEnabled: boolean
   setAppLockEnabled: (v: boolean) => void
 
+  // L2 (GAP-ANALYSIS-V2.md): pending deep-link navigation that arrives while
+  // the app is locked. We store the target section + params; on successful
+  // unlock, the LockScreen drains this and routes the user there. If the user
+  // abandons the unlock, the pending target is discarded (per spec).
+  pendingNavigation: { section: SectionId; params?: Record<string, string> } | null
+  setPendingNavigation: (n: { section: SectionId; params?: Record<string, string> } | null) => void
+
   // onboarding (first-run)
   hasSeenOnboarding: boolean
   setHasSeenOnboarding: (v: boolean) => void
@@ -174,6 +181,9 @@ export const useAppStore = create<AppState>((set) => ({
   setLocked: (v) => set({ isLocked: v }),
   appLockEnabled: false,
   setAppLockEnabled: (v) => { writeLS(LS.appLock, v); set({ appLockEnabled: v }) },
+
+  pendingNavigation: null,
+  setPendingNavigation: (n) => set({ pendingNavigation: n }),
 
   hasSeenOnboarding: false,
   setHasSeenOnboarding: (v) => { writeLS(LS.onboarding, v); set({ hasSeenOnboarding: v }) },
