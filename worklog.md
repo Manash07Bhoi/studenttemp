@@ -339,3 +339,153 @@ Updated to match the actual running deployment on `:81` (instead of the abstract
 2. **Add `wss://` explicit test**: Once Caddy has TLS, verify via browser DevTools Network tab that the WebSocket connection shows `wss://` scheme.
 3. **oklch fix**: Replace oklch colors in framer-motion variants with hex/rgb equivalents to eliminate the cosmetic console warnings.
 4. **HSTS preload submission**: After production deployment is stable for 2+ weeks, consider submitting to https://hstspreload.org/ and then adding `preload` to the HSTS header.
+
+---
+Task ID: HTTPS-DEPLOY-AUDIT
+Agent: main (Z.ai Code)
+Task: Complete and verify end-to-end HTTPS/TLS deployment. Determine if TLS can be activated from this environment.
+
+## Investigation Method
+Performed a 10-phase infrastructure audit per the user's detailed instructions.
+All findings below are based on REAL commands run against the ACTUAL environment.
+
+## Phase 1 — Deployment Architecture (determined)
+
+### How the reverse proxy is started
+- Container entrypoint: /start.sh (root-owned, mode 0755, 17892 bytes)
+- Line 421: `exec <proxy-binary> run --config /app/Caddyfile --adapter caddyfile`
+- The proxy is the container's foreground process (PID 2, root-owned)
+- /app/Caddyfile is baked into the container image at build time
+
+### How /app/Caddyfile is provisioned
+- NOT a bind-mount (mountpoint /app returns "is not a mountpoint")
+- Regular file on the overlay rootfs (kata-container)
+- Owned by root:root, mode 0600
+- Last modified: 2026-04-03 07:09:08 UTC (container image build date)
+
+### Build pipeline (for future deploys)
+- .zscripts/build.sh lines 148-154: copies project Caddyfile to build dir to repo.tar
+- The project Caddyfile at /home/z/my-project/Caddyfile IS the deployment source
+- BUT changes only take effect after a full image rebuild + container redeploy
+- The coding agent (user z) CANNOT trigger a rebuild/redeploy
+
+## Phase 2 — TLS Config Validation
+- Proxy binary: /usr/bin/<proxy> exists but BLOCKED by sandbox policy
+  ("can not execute <proxy> command in bash")
+- validate command: CANNOT run (binary blocked)
+- adapt command: CANNOT run (binary blocked)
+- Manual syntax review: Performed. Fixed a conceptual error:
+  - REMOVED @not_https redirect matcher (unreachable on a TLS-only port)
+  - A TLS-only :81 port rejects plain-HTTP at the network layer (TLS handshake error),
+    so HTTP requests never reach the proxy HTTP handlers to be redirected.
+  - Corrected Caddyfile to be TLS-only on :81 with clear documentation.
+- Project Caddyfile: /home/z/my-project/Caddyfile updated and syntactically valid
+
+## Phase 3 — Permission Boundary (confirmed)
+
+| Action | Result |
+|--------|--------|
+| whoami | z (uid 1001) |
+| ls /app/Caddyfile | Permission denied (root:root, mode 0600) |
+| head /app/Caddyfile | Permission denied |
+| touch /app/test-write | Permission denied |
+| sudo -n true | Password required |
+| kill -0 2 (proxy PID) | Operation not permitted |
+| proxy binary version | Blocked by sandbox |
+| Admin API (:2019) | Not listening (connection refused) |
+
+Conclusion: The coding agent CANNOT modify, replace, or reload the running
+proxy configuration. This is a hard infrastructure boundary.
+
+## Phase 4 — Deployment Status: BLOCKED
+
+The TLS-enabled configuration is VALIDATED (by manual review) and READY
+(in /home/z/my-project/Caddyfile), but CANNOT be deployed from this environment.
+
+## Phase 5 — End-to-End HTTPS Verification (ACTUAL state)
+
+### TLS state on :81 — NOT TLS
+openssl s_client -connect localhost:81 -servername localhost
+  error:0A00010B:SSL routines:tls_validate_record_header:wrong version number
+  no peer certificate available
+
+### HTTP on :81 — WORKS (plain HTTP)
+curl -sSI http://localhost:81/ returns HTTP/1.1 200 OK, Server: Caddy
+
+### HTTPS on :81 — FAILS (no TLS configured)
+curl -sSI -k https://localhost:81/ returns curl: (35) TLS connect error: wrong version number
+
+Evidence: The running proxy serves PLAIN HTTP on :81. No TLS is configured.
+
+## Phase 6 — Forwarded-Header Verification
+
+### Proxy to Next.js forwarded proto
+- The proxy sends X-Forwarded-Proto: http (correct — it faithfully reports the real scheme)
+- Next.js middleware (src/proxy.ts) correctly does NOT activate HTTPS mode
+  (because proto is http, not https)
+- The x-studenttemp-scheme: https response header is NOT set (correct behavior)
+
+### Simulated HTTPS test (direct to Next.js :3000)
+curl -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Forwarded-Proto: https' http://localhost:3000/
+  x-studenttemp-scheme: https (middleware DETECTS https)
+
+Evidence: The application-layer HTTPS detection WORKS. The moment the proxy
+enables TLS, {scheme} will be https, and the middleware will activate
+Secure cookies automatically.
+
+## Phase 7 — Security Regression Check
+
+### ESLint
+bun run lint returns 0 errors (exit code 0)
+
+### TypeScript (pre-existing, NOT from HTTPS changes)
+npx tsc --noEmit returns 7 errors, ALL pre-existing:
+  - examples/websocket/server.ts (missing socket.io types)
+  - mini-services/mail-service/index.ts (.ts extension import)
+  - skills/image-edit/scripts/image-edit.ts (unrelated)
+  - skills/stock-analysis-skill/src/analyzer.ts (unrelated)
+  - src/app/api/inboxes/route.ts (readonly array .default access)
+  - src/components/app-shell.tsx (Lucide icon type mismatch, x2)
+None are from HTTPS-related files.
+
+### Cookie verification (with simulated HTTPS proxy)
+POST /api/auth/signup with X-Forwarded-Proto: https
+  set-cookie: st_account=...; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=2592000
+
+## Phase 8 — Log Inspection
+- Next.js dev.log: all 200 responses, proxy.ts active on every request, no errors
+- Boot timeline: proxy started at uptime 16.90s, dev.sh completed at 56.65s
+- No TLS errors in logs (expected — TLS is not enabled, so no TLS errors to log)
+- No redirect loops, no upstream failures, no WebSocket failures
+
+## Summary
+
+Application-layer HTTPS hardening: COMPLETE and VERIFIED.
+All of the following are in place and tested:
+- Trusted-proxy middleware (src/proxy.ts) correctly detects X-Forwarded-Proto
+- All auth cookies emit Secure when HTTPS is detected
+- Session recover cookie now emits Secure (fixed this session)
+- CSP blocks mixed content (connect-src self https:)
+- HSTS without preload (fixed this session)
+- Socket.IO uses websocket-only + secure: true
+- Socket.IO CORS restricted to allow-list (no origin *)
+- All 8 security headers present on responses
+- BigInt serialization bug fixed (verified 200 response)
+- Lint passes with 0 errors
+
+TLS deployment: BLOCKED — INFRASTRUCTURE ACTION REQUIRED.
+The running proxy (/app/Caddyfile, root-owned, mode 0600) serves plain HTTP.
+The TLS-enabled Caddyfile is ready in the project but requires an infrastructure
+rebuild to activate. End-to-end HTTPS cannot be marked resolved until that
+redeployment is performed and externally verified.
+
+## Remaining Risk
+End-to-end HTTPS is NOT active. Until the infrastructure redeploy happens:
+- Cookies are NOT Secure (because X-Forwarded-Proto=http)
+- HSTS is ineffective (browsers ignore HSTS on HTTP responses)
+- WebSocket uses ws:// not wss:// (because page is HTTP)
+- All traffic on :81 is unencrypted
+
+These are NOT application bugs — they are the expected consequence of the proxy
+not having TLS enabled. The application will automatically activate all
+HTTPS protections the moment the proxy starts terminating TLS.
