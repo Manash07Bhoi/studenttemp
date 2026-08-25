@@ -120,10 +120,21 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
     return () => window.removeEventListener('studenttemp:generate-inbox', onGen)
   }, [domainsData?.domains, createMutation])
 
-  const handleTriggerMail = () => {
+  const handleTriggerMail = async () => {
     if (!activeInbox) return
-    triggerGenerate(activeInbox.email)
-    toast.info('Requesting a test message...', { description: 'Should arrive within ~12 seconds' })
+    // Send a real test email via our API endpoint (server-side nodemailer → SMTP)
+    try {
+      toast.info('Sending test email...', { description: `To: ${activeInbox.email}` })
+      const res = await fetch(`/api/inboxes/${activeInbox.id}/test-mail`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      toast.success('Test email sent!', {
+        description: 'Check Messages tab — it should appear in seconds.',
+        duration: 4000,
+      })
+    } catch (e) {
+      toast.error('Failed to send test email: ' + (e as Error).message)
+    }
   }
 
   return (

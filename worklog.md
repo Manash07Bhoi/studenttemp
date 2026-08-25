@@ -1905,3 +1905,46 @@ The system is functioning as designed. The key is to:
 - Use a longer lifetime (30 min or 1 hour) if you need more time
 - Keep the browser tab open to maintain the Socket.IO connection
 - Don't clear localStorage/cookies between sessions
+
+---
+Task ID: TEST-MAIL-FIX
+Agent: main (Z.ai Code)
+Task: Fix mail not received — add working "Test mail" button that sends real email via API.
+
+## Root Cause Analysis
+The user was using a temp inbox email (student-seuga4a7yw@studentbox.in) to sign up for an external service (Z.ai chat platform). The external service sent a verification email, but it never arrived because:
+1. The domain `studentbox.in` has NO MX records pointing to our server
+2. Our SMTP server listens on port 2525 (not standard port 25)
+3. External mail servers can't reach our sandbox SMTP server
+4. Only local mail (from localhost via nodemailer/swaks) can be delivered
+
+This is an **infrastructure limitation** — in production with real MX records + port 25, external email would work.
+
+## Fix Applied
+1. **Created `/api/inboxes/[id]/test-mail` POST route** — server-side endpoint that:
+   - Uses nodemailer to send a real email from `noreply@studenttemp.dev` to the inbox
+   - Connects to the local SMTP server (localhost:2525)
+   - Rate-limited (5/hour/IP)
+   - Returns messageId + SMTP response
+
+2. **Updated "Test mail" button in Inbox UI**:
+   - Now calls `/api/inboxes/{id}/test-mail` instead of socket trigger
+   - Shows "Sending test email..." toast
+   - Shows "Test email sent!" success toast
+   - Email arrives in real-time via Socket.IO
+
+3. **SMTP server now listens on 0.0.0.0** (all interfaces, not just localhost)
+
+## Verification
+- Clicked "Test mail" button in browser → toast "Sending test email..."
+- Email "✅ Test email — your inbox is working!" from noreply@studenttemp.dev arrived in real-time
+- "Messages 1" badge appeared
+- Mail-service log: `delivered real message to student-h36vdnhqsj@studentbox.in: "✅ Test email — your inbox is working!"`
+- Console: zero errors
+- Lint: 0 errors
+
+## Important Note for Users
+The "Test mail" button sends a REAL email through the SMTP server. This works in this sandbox. However, emails from EXTERNAL services (Gmail, Z.ai, etc.) will NOT arrive because:
+- The domain `studentbox.in` doesn't have MX records pointing to this server
+- The SMTP server is not publicly accessible on port 25
+- This requires production deployment with real DNS + public IP
