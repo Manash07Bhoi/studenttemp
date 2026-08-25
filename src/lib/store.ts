@@ -7,6 +7,9 @@ export type SectionId =
   | 'inbox' | 'messages' | 'addresses' | 'settings' | 'about'
   | 'legal' | 'applock' | 'expired' | 'onboarding' | 'compose' | 'sessions'
   | 'analytics'
+  // Account Mode screens (Phase 12)
+  | 'auth' | 'profile-setup' | 'account-home' | 'labels-filters' | 'contacts'
+  | 'storage' | 'security' | 'account-switcher' | 'vacation' | 'admin'
 
 interface AppState {
   // navigation
@@ -55,6 +58,13 @@ interface AppState {
   setLocked: (v: boolean) => void
   appLockEnabled: boolean
   setAppLockEnabled: (v: boolean) => void
+
+  // Account Mode (Phase 12): logged-in account info
+  account: { id: string; email: string; displayName: string; totpEnabled: boolean } | null
+  setAccount: (a: { id: string; email: string; displayName: string; totpEnabled: boolean } | null) => void
+  // sub-view within account-home (labels/filters/contacts/etc.)
+  accountSubView: string
+  setAccountSubView: (v: string) => void
 
   // L2 (GAP-ANALYSIS-V2.md): pending deep-link navigation that arrives while
   // the app is locked. We store the target section + params; on successful
@@ -181,6 +191,12 @@ export const useAppStore = create<AppState>((set) => ({
   setLocked: (v) => set({ isLocked: v }),
   appLockEnabled: false,
   setAppLockEnabled: (v) => { writeLS(LS.appLock, v); set({ appLockEnabled: v }) },
+
+  // Account Mode (Phase 12)
+  account: null,
+  setAccount: (a) => set({ account: a }),
+  accountSubView: 'home',
+  setAccountSubView: (v) => set({ accountSubView: v }),
 
   pendingNavigation: null,
   setPendingNavigation: (n) => set({ pendingNavigation: n }),

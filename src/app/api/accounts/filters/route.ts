@@ -31,3 +31,20 @@ export async function POST(req: NextRequest) {
   })
   return NextResponse.json({ filter }, { status: 201 })
 }
+
+// DELETE /api/accounts/filters — Delete a filter
+export async function DELETE(req: NextRequest) {
+  const accountId = await getAccountId()
+  if (!accountId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Filter id required' }, { status: 400 })
+
+  const existing = await db.filter.findUnique({ where: { id } })
+  if (!existing || existing.accountId !== accountId) {
+    return NextResponse.json({ error: 'Filter not found' }, { status: 404 })
+  }
+
+  await db.filter.delete({ where: { id } })
+  return NextResponse.json({ ok: true })
+}

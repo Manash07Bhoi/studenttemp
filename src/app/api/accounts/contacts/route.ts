@@ -26,3 +26,20 @@ export async function POST(req: NextRequest) {
   })
   return NextResponse.json({ contact }, { status: 201 })
 }
+
+// DELETE /api/accounts/contacts — Delete a contact
+export async function DELETE(req: NextRequest) {
+  const accountId = await getAccountId()
+  if (!accountId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Contact id required' }, { status: 400 })
+
+  const existing = await db.contact.findUnique({ where: { id } })
+  if (!existing || existing.accountId !== accountId) {
+    return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
+  }
+
+  await db.contact.delete({ where: { id } })
+  return NextResponse.json({ ok: true })
+}
