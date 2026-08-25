@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Copy, Check, RefreshCw, QrCode as QrIcon, Clock, Mail, Sparkles, AtSign,
   Trash2, Plus, AlertCircle, Zap, ArrowRight, Info, ShieldCheck, Flame,
+  Inbox as InboxIcon, Send,
 } from 'lucide-react'
 import { api } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
@@ -26,6 +27,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/hooks/use-i18n'
 
@@ -47,6 +49,9 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
   const [scrambleKey, setScrambleKey] = useState(0)
   const [showCustomize, setShowCustomize] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  const [showReceive, setShowReceive] = useState(false)
+  const [recvForm, setRecvForm] = useState({ fromEmail: '', fromName: '', subject: '', textBody: '' })
+  const [recvSending, setRecvSending] = useState(false)
 
   const { data: domainsData } = useQuery({ queryKey: ['domains'], queryFn: api.getDomains, staleTime: Infinity })
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: api.getStats, refetchInterval: 20_000 })
@@ -144,6 +149,42 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
     }
   }
 
+  // Simulate receiving an email from an external sender (e.g., noreply@lovable.dev)
+  // This is needed because the sandbox SMTP server cannot receive external mail
+  // (no MX record, no port 25). Users can paste the verification email they
+  // received elsewhere, or simulate one from any sender for testing.
+  const handleReceiveMail = async () => {
+    if (!activeInbox) return
+    if (!recvForm.fromEmail || !recvForm.subject) {
+      toast.error('Sender email and subject are required')
+      return
+    }
+    setRecvSending(true)
+    try {
+      const res = await fetch(`/api/inboxes/${activeInbox.id}/receive-mail`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recvForm),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      toast.success('Email received!', {
+        description: `From ${recvForm.fromEmail} — check Messages tab`,
+        duration: 4000,
+      })
+      setRecvForm({ fromEmail: '', fromName: '', subject: '', textBody: '' })
+      setShowReceive(false)
+      // Invalidate messages query so the new email shows up
+      queryClient.invalidateQueries({ queryKey: ['messages'] })
+      queryClient.invalidateQueries({ queryKey: ['inboxes'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+    } catch (e) {
+      toast.error('Failed to receive email: ' + (e as Error).message)
+    } finally {
+      setRecvSending(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Hero / Active Inbox Card */}
@@ -225,6 +266,9 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
                   </Button>
                   <Button onClick={handleTriggerMail} variant="outline" size="sm" className="gap-2">
                     <Mail className="h-4 w-4" /> Test mail
+                  </Button>
+                  <Button onClick={() => setShowReceive(true)} variant="outline" size="sm" className="gap-2">
+                    <InboxIcon className="h-4 w-4" /> Receive mail
                   </Button>
                   <Button
                     onClick={() => {
@@ -382,6 +426,92 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
             {activeInbox && <QrCode value={`mailto:${activeInbox.email}`} size={180} />}
             <p className="font-mono text-sm font-medium break-all text-center">{activeInbox?.email}</p>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receive Mail dialog — simulate receiving from external sender */}
+      <Dialog open={showReceive} onOpenChange={setShowReceive}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <InboxIcon className="h-4 w-4 text-emerald-500" /> Receive Email from Sender
+            </DialogTitle>
+            <DialogDescription className="space-y-2">
+              <span>Simulate receiving an email from any external sender (e.g., noreply@lovable.dev, no-reply@google.com).</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
+            <strong>Why this exists:</strong> The sandbox cannot receive external mail (no MX record, no port 25).
+            Use this to paste verification emails you received elsewhere, or test OTP/verification flows.
+            The email appears instantly in your Messages tab — identical to real SMTP delivery.
+          </div>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="recv-from">Sender email</Label>
+                <Input
+                  id="recv-from"
+                  type="email"
+                  placeholder="noreply@lovable.dev"
+                  value={recvForm.fromEmail}
+                  onChange={(e) => setRecvForm({ ...recvForm, fromEmail: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="recv-name">Sender name (optional)</Label>
+                <Input
+                  id="recv-name"
+                  placeholder="Lovable"
+                  value={recvForm.fromName}
+                  onChange={(e) => setRecvForm({ ...recvForm, fromName: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="recv-subject">Subject</Label>
+              <Input
+                id="recv-subject"
+                placeholder="Verify your email address"
+                value={recvForm.subject}
+                onChange={(e) => setRecvForm({ ...recvForm, subject: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="recv-body">Email body</Label>
+              <Textarea
+                id="recv-body"
+                placeholder="Paste the email content here... (verification link, OTP code, etc.)"
+                rows={5}
+                value={recvForm.textBody}
+                onChange={(e) => setRecvForm({ ...recvForm, textBody: e.target.value })}
+              />
+            </div>
+            {/* Quick-fill presets for common verification scenarios */}
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-xs text-muted-foreground self-center">Quick fill:</span>
+              {[
+                { label: 'Lovable verify', from: 'noreply@lovable.dev', name: 'Lovable', subj: 'Verify your email address', body: 'Welcome to Lovable! Click the link below to verify your email:\n\nhttps://lovable.dev/verify?token=abc123xyz\n\nThis link expires in 24 hours.' },
+                { label: 'Google OTP', from: 'no-reply@google.com', name: 'Google', subj: 'Your verification code', body: 'Your Google verification code is: 482913\n\nEnter this code to complete your sign-in.' },
+                { label: 'GitHub OTP', from: 'noreply@github.com', name: 'GitHub', subj: 'Your authentication code', body: '123456 is your GitHub authentication code.\n\nEnter this code in the verification page.' },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => setRecvForm({ fromEmail: preset.from, fromName: preset.name, subject: preset.subj, textBody: preset.body })}
+                  className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs hover:bg-muted transition-colors"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowReceive(false)}>Cancel</Button>
+            <Button onClick={handleReceiveMail} disabled={recvSending || !recvForm.fromEmail || !recvForm.subject} className="gap-2">
+              {recvSending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {recvSending ? 'Receiving...' : 'Receive Email'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

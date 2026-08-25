@@ -106,6 +106,47 @@ function unsubscribe(map: Map<string, Set<string>>, key: string, socketId: strin
   if (set.size === 0) map.delete(key)
 }
 
+// ---------- Internal broadcast endpoint ----------
+// Allows the Next.js API to inject messages (received via /api/inboxes/[id]/receive-mail)
+// and have them broadcast to all subscribed browser tabs via Socket.IO.
+// This is used when external mail cannot reach the sandbox SMTP server.
+httpServer.on('request', (req, res) => {
+  if (req.method !== 'POST' || req.url !== '/internal/broadcast') return
+  let body = ''
+  req.on('data', (chunk) => { body += chunk; if (body.length > 1_000_000) body = '' })
+  req.on('end', () => {
+    try {
+      const { email, sessionId, event, payload } = JSON.parse(body)
+      let delivered = 0
+      // Broadcast to inbox subscribers
+      if (email) {
+        const set = subscribers.get(email)
+        if (set) {
+          for (const sid of set) {
+            io.to(sid).emit(event, payload)
+            delivered++
+          }
+        }
+      }
+      // Broadcast to session subscribers
+      if (sessionId) {
+        const sessSet = sessionSubscribers.get(sessionId)
+        if (sessSet) {
+          for (const sid of sessSet) {
+            io.to(sid).emit(event, payload)
+            delivered++
+          }
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, delivered }))
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: String(e) }))
+    }
+  })
+})
+
 io.on('connection', (socket) => {
   console.log(`[socket] connected: ${socket.id}`)
 
