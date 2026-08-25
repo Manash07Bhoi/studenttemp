@@ -1,0 +1,1611 @@
+     1→'use client'
+     2→
+     3→/**
+     4→ * App Lock — section + lock screen + auto-lock hook
+     5→ *
+     6→ * Local-only device-UI protection. The server has NO knowledge of the PIN.
+     7→ *
+     8→ * Setup: user picks a 4-6 digit PIN → we derive a PBKDF2-SHA256 key (100k
+     9→ * iterations) with a random 16-byte salt, then AES-GCM-encrypt a known marker
+    10→ * string. The encrypted marker (ciphertext + salt + iv) + pinLength +
+    11→ * autoLockDelay + biometricEnabled live in localStorage under
+    12→ * `studenttemp_applock_data`. The boolean enabled flag also lives under
+    13→ * `studenttemp_applock` (mirrored by the Zustand store).
+    14→ *
+    15→ * Unlock: user re-enters PIN → re-derive key → try AES-GCM decrypt of the
+    16→ * stored ciphertext → if plaintext === marker, success.
+    17→ *
+    18→ * Biometric: WebAuthn platform authenticator (Touch ID / Face ID / Windows
+    19→ * Hello). We register a discoverable (resident) credential once at setup; on
+    20→ * unlock we call navigator.credentials.get() with userVerification:'required'.
+    21→ * The OS verifies the user; we trust the OS. Biometric is a UX shortcut — the
+    22→ * PIN remains the cryptographic factor and is always available as fallback.
+    23→ *
+    24→ * Auto-lock: Page Visibility API. When the tab is hidden, we record a
+    25→ * timestamp; on resume, if hidden-for > autoLockDelay, lock immediately (so the
+    26→ * lock screen is present with zero flash-of-unlocked-content).
+    27→ *
+    28→ * Cool-down: after every 5 failed PIN attempts, lock the pad for 15s → 30s →
+    29→ * 60s → 5min, escalating with each successive lockout. Counter persists in
+    30→ * localStorage so closing the tab does NOT reset it.
+    31→ *
+    32→ * Forgot PIN: clears the local encrypted blob only. Server-side inboxes are
+    33→ * unaffected.
+    34→ *
+    35→ * Spec: PRD SECURITY.md "App Lock Flow" + MOTION-SYSTEM.md §9.
+    36→ */
+    37→
+    38→import {
+    39→  useState, useEffect, useRef, useCallback, useMemo,
+    40→} from 'react'
+    41→import { motion, AnimatePresence } from 'framer-motion'
+    42→import {
+    43→  Lock, Fingerprint, Shield, ShieldCheck, ShieldAlert, Trash2, Clock,
+    44→  AlertTriangle, CheckCircle2, KeyRound, Eye, Delete,
+    45→  X, Loader2, RefreshCw, ScanFace,
+    46→} from 'lucide-react'
+    47→import { useAppStore } from '@/lib/store'
+    48→import { toast } from 'sonner'
+    49→import { Button } from '@/components/ui/button'
+    50→import { Switch } from '@/components/ui/switch'
+    51→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+    52→import { Badge } from '@/components/ui/badge'
+    53→import {
+    54→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    55→} from '@/components/ui/select'
+    56→import {
+    57→  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    58→  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+    59→  AlertDialogTrigger,
+    60→} from '@/components/ui/alert-dialog'
+    61→import {
+    62→  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+    63→} from '@/components/ui/dialog'
+    64→import {
+    65→  Accordion, AccordionContent, AccordionItem, AccordionTrigger,
+    66→} from '@/components/ui/accordion'
+    67→import { cn } from '@/lib/utils'
+    68→import { useSound } from '@/hooks/use-settings'
+    69→
+    70→// =============================================================================
+    71→// Constants & types
+    72→// =============================================================================
+    73→
+    74→const LS_DATA_KEY = 'studenttemp_applock_data'
+    75→/** The plaintext marker that gets encrypted at rest. Decrypting back to this
+    76→ *  string proves the PIN is correct. It carries no secret meaning. */
+    77→const UNLOCK_MARKER = 'studenttemp:applock:valid:v1'
+    78→const PBKDF2_ITERATIONS = 100_000 // OWASP-recommended minimum for PBKDF2-SHA256
+    79→const SALT_BYTES = 16
+    80→const IV_BYTES = 12
+    81→const KEY_LENGTH_BITS = 256
+    82→
+    83→const PIN_MIN = 4
+    84→const PIN_MAX = 6
+    85→
+    86→/** Auto-lock delay in seconds. 0 means "Never" (manual lock only). */
+    87→type AutoLockDelaySeconds = 0 | 120 | 300 | 900
+    88→
+    89→const AUTO_LOCK_OPTIONS: { value: AutoLockDelaySeconds; label: string }[] = [
+    90→  { value: 120, label: '2 minutes' },
+    91→  { value: 300, label: '5 minutes' },
+    92→  { value: 900, label: '15 minutes' },
+    93→  { value: 0, label: 'Never (manual only)' },
+    94→]
+    95→
+    96→/** Progressive cool-down ladder (seconds) per successive lockout. */
+    97→const COOLDOWN_LADDER = [15, 30, 60, 300] // 15s, 30s, 60s, 5min
+    98→const MAX_FAILED_BEFORE_COOLDOWN = 5
+    99→
+   100→type PinLength = 4 | 5 | 6
+   101→
+   102→interface AppLockData {
+   103→  version: 1
+   104→  salt: string           // base64
+   105→  iv: string             // base64
+   106→  ciphertext: string     // base64 (AES-GCM of UNLOCK_MARKER)
+   107→  pinLength: PinLength
+   108→  autoLockDelay: AutoLockDelaySeconds
+   109→  biometricEnabled: boolean
+   110→  biometricCredentialId?: string  // base64 rawId (if a platform credential was registered)
+   111→  createdAt: string
+   112→  failedAttempts: number
+   113→  cooldownUntil: number | null    // epoch ms
+   114→}
+   115→
+   116→// =============================================================================
+   117→// Crypto helpers (real Web Crypto API)
+   118→// =============================================================================
+   119→
+   120→function bufToB64(buf: ArrayBuffer | Uint8Array): string {
+   121→  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+   122→  let s = ''
+   123→  const chunk = 0x8000
+   124→  for (let i = 0; i < bytes.length; i += chunk) {
+   125→    s += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)) as unknown as number[])
+   126→  }
+   127→  return btoa(s)
+   128→}
+   129→
+   130→function b64ToBuf(s: string): Uint8Array<ArrayBuffer> {
+   131→  const bin = atob(s)
+   132→  const bytes = new Uint8Array(new ArrayBuffer(bin.length))
+   133→  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+   134→  return bytes
+   135→}
+   136→
+   137→function randomBytes(n: number): Uint8Array<ArrayBuffer> {
+   138→  const arr = new Uint8Array(new ArrayBuffer(n))
+   139→  crypto.getRandomValues(arr)
+   140→  return arr
+   141→}
+   142→
+   143→async function deriveKey(pin: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+   144→  const enc = new TextEncoder()
+   145→  const baseKey = await crypto.subtle.importKey(
+   146→    'raw', enc.encode(pin), { name: 'PBKDF2' }, false, ['deriveKey']
+   147→  )
+   148→  return crypto.subtle.deriveKey(
+   149→    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+   150→    baseKey,
+   151→    { name: 'AES-GCM', length: KEY_LENGTH_BITS },
+   152→    false,
+   153→    ['encrypt', 'decrypt']
+   154→  )
+   155→}
+   156→
+   157→async function encryptMarker(pin: string): Promise<{ salt: string; iv: string; ciphertext: string; pinLength: PinLength }> {
+   158→  const salt = randomBytes(SALT_BYTES)
+   159→  const iv = randomBytes(IV_BYTES)
+   160→  const key = await deriveKey(pin, salt)
+   161→  const enc = new TextEncoder()
+   162→  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(UNLOCK_MARKER))
+   163→  return {
+   164→    salt: bufToB64(salt),
+   165→    iv: bufToB64(iv),
+   166→    ciphertext: bufToB64(ct),
+   167→    pinLength: pin.length as PinLength,
+   168→  }
+   169→}
+   170→
+   171→async function verifyPin(pin: string, data: AppLockData): Promise<boolean> {
+   172→  try {
+   173→    const salt = b64ToBuf(data.salt)
+   174→    const iv = b64ToBuf(data.iv)
+   175→    const ct = b64ToBuf(data.ciphertext)
+   176→    const key = await deriveKey(pin, salt)
+   177→    const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct)
+   178→    const text = new TextDecoder().decode(dec)
+   179→    return text === UNLOCK_MARKER
+   180→  } catch {
+   181→    return false
+   182→  }
+   183→}
+   184→
+   185→// =============================================================================
+   186→// localStorage helpers
+   187→// =============================================================================
+   188→
+   189→function loadData(): AppLockData | null {
+   190→  if (typeof window === 'undefined') return null
+   191→  try {
+   192→    const raw = localStorage.getItem(LS_DATA_KEY)
+   193→    if (!raw) return null
+   194→    const parsed = JSON.parse(raw)
+   195→    if (parsed?.version !== 1) return null
+   196→    return parsed as AppLockData
+   197→  } catch {
+   198→    return null
+   199→  }
+   200→}
+   201→
+   202→function saveData(data: AppLockData | null): void {
+   203→  if (typeof window === 'undefined') return
+   204→  if (data === null) localStorage.removeItem(LS_DATA_KEY)
+   205→  else localStorage.setItem(LS_DATA_KEY, JSON.stringify(data))
+   206→}
+   207→
+   208→// =============================================================================
+   209→// WebAuthn helpers (real calls, graceful degradation)
+   210→// =============================================================================
+   211→
+   212→type BiometricStatus = 'available' | 'unavailable' | 'unsupported'
+   213→
+   214→async function getBiometricStatus(): Promise<BiometricStatus> {
+   215→  if (typeof window === 'undefined' || !window.PublicKeyCredential) return 'unsupported'
+   216→  try {
+   217→    const fn = (PublicKeyCredential as unknown as {
+   218→      isUserVerifyingPlatformAuthenticatorAvailable?: () => Promise<boolean>
+   219→    }).isUserVerifyingPlatformAuthenticatorAvailable
+   220→    if (!fn) return 'unavailable'
+   221→    const ok = await fn.call(PublicKeyCredential)
+   222→    return ok ? 'available' : 'unavailable'
+   223→  } catch {
+   224→    return 'unavailable'
+   225→  }
+   226→}
+   227→
+   228→/** Registers a discoverable (resident) platform credential to use as a local
+   229→ *  unlock token. The OS verifies the user; we trust the OS. */
+   230→async function registerBiometric(): Promise<string | null> {
+   231→  try {
+   232→    const challenge = randomBytes(32)
+   233→    const userId = randomBytes(16)
+   234→    const cred = (await navigator.credentials.create({
+   235→      publicKey: {
+   236→        challenge,
+   237→        rp: { name: 'StudentTemp App Lock' },
+   238→        user: {
+   239→          id: userId,
+   240→          name: 'app-lock-user',
+   241→          displayName: 'App Lock',
+   242→        },
+   243→        pubKeyCredParams: [
+   244→          { type: 'public-key', alg: -7 },    // ES256
+   245→          { type: 'public-key', alg: -257 },  // RS256
+   246→        ],
+   247→        authenticatorSelection: {
+   248→          authenticatorAttachment: 'platform',
+   249→          userVerification: 'required',
+   250→          residentKey: 'required',
+   251→          requireResidentKey: true,
+   252→        },
+   253→        timeout: 60_000,
+   254→        attestation: 'none',
+   255→      },
+   256→    })) as PublicKeyCredential | null
+   257→    if (!cred) return null
+   258→    return bufToB64(cred.rawId)
+   259→  } catch {
+   260→    return null
+   261→  }
+   262→}
+   263→
+   264→async function unlockWithBiometric(credentialId: string): Promise<boolean> {
+   265→  try {
+   266→    const challenge = randomBytes(32)
+   267→    const assertion = await navigator.credentials.get({
+   268→      publicKey: {
+   269→        challenge,
+   270→        timeout: 60_000,
+   271→        userVerification: 'required',
+   272→        allowCredentials: [{
+   273→          type: 'public-key',
+   274→          id: b64ToBuf(credentialId),
+   275→          transports: ['internal'],
+   276→        }],
+   277→      },
+   278→    })
+   279→    return !!assertion
+   280→  } catch {
+   281→    return false
+   282→  }
+   283→}
+   284→
+   285→// =============================================================================
+   286→// PinDots — the row of filled/unfilled dot indicators
+   287→// =============================================================================
+   288→
+   289→interface PinDotsProps {
+   290→  count: number      // total dots
+   291→  filled: number     // how many are filled
+   292→  shake?: boolean    // trigger shake animation on incorrect
+   293→  error?: boolean
+   294→}
+   295→
+   296→function PinDots({ count, filled, shake = false, error = false }: PinDotsProps) {
+   297→  return (
+   298→    <motion.div
+   299→      className="flex items-center justify-center gap-3"
+   300→      animate={shake ? { x: [0, -6, 6, -6, 6, -6, 6, 0] } : { x: 0 }}
+   301→      transition={shake ? { duration: 0.3, ease: 'easeInOut' } : { duration: 0 }}
+   302→      aria-hidden
+   303→    >
+   304→      {Array.from({ length: count }).map((_, i) => {
+   305→        const isFilled = i < filled
+   306→        return (
+   307→          <motion.span
+   308→            key={i}
+   309→            className={cn(
+   310→              'h-3 w-3 rounded-full border-2 transition-colors',
+   311→              isFilled
+   312→                ? (error ? 'border-destructive bg-destructive' : 'border-primary bg-primary')
+   313→                : 'border-muted-foreground/40 bg-transparent'
+   314→            )}
+   315→            initial={false}
+   316→            // scale-pop on fill: 0 -> 1.2 -> 1.0
+   317→            animate={isFilled ? { scale: [1, 1.2, 1] } : { scale: 1 }}
+   318→            transition={{ duration: 0.24, ease: 'easeOut' }}
+   319→          />
+   320→        )
+   321→      })}
+   322→    </motion.div>
+   323→  )
+   324→}
+   325→
+   326→// =============================================================================
+   327→// PinPad — the 3x4 grid of digit buttons (1-9, biometric, 0, delete)
+   328→// =============================================================================
+   329→
+   330→interface PinPadProps {
+   331→  onDigit: (d: string) => void
+   332→  onDelete: () => void
+   333→  onSubmit: () => void
+   334→  onBiometric?: () => void
+   335→  showBiometric?: boolean
+   336→  biometricBusy?: boolean
+   337→  disabled?: boolean
+   338→  /** label for the action key (default "delete"). Setup dialog uses "submit". */
+   339→  actionVariant?: 'delete' | 'submit'
+   340→}
+   341→
+   342→function PinPad({
+   343→  onDigit, onDelete, onSubmit, onBiometric,
+   344→  showBiometric = false, biometricBusy = false, disabled = false,
+   345→  actionVariant = 'delete',
+   346→}: PinPadProps) {
+   347→  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
+   348→
+   349→  const btnClass =
+   350→    'relative h-16 w-full max-w-[5rem] select-none rounded-2xl border border-border/60 bg-card text-2xl font-medium tabular-nums shadow-sm transition-all hover:bg-accent hover:scale-[1.03] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:pointer-events-none'
+   351→
+   352→  return (
+   353→    <div
+   354→      className="mx-auto grid w-full max-w-[20rem] grid-cols-3 gap-3"
+   355→      role="group"
+   356→      aria-label="PIN pad"
+   357→    >
+   358→      {digits.map((d) => (
+   359→        <button
+   360→          key={d}
+   361→          type="button"
+   362→          className={btnClass}
+   363→          onClick={() => onDigit(d)}
+   364→          disabled={disabled}
+   365→          aria-label={`Digit ${d}`}
+   366→        >
+   367→          {d}
+   368→        </button>
+   369→      ))}
+   370→
+   371→      {/* Bottom-left action: biometric OR empty */}
+   372→      {showBiometric ? (
+   373→        <button
+   374→          key="bio"
+   375→          type="button"
+   376→          className={cn(btnClass, 'text-primary')}
+   377→          onClick={onBiometric}
+   378→          disabled={disabled || biometricBusy}
+   379→          aria-label="Unlock with biometric"
+   380→        >
+   381→          {biometricBusy
+   382→            ? <Loader2 className="h-6 w-6 animate-spin" />
+   383→            : <Fingerprint className="h-6 w-6" />}
+   384→        </button>
+   385→      ) : (
+   386→        <span aria-hidden />
+   387→      )}
+   388→
+   389→      <button
+   390→        key="0"
+   391→        type="button"
+   392→        className={btnClass}
+   393→        onClick={() => onDigit('0')}
+   394→        disabled={disabled}
+   395→        aria-label="Digit 0"
+   396→      >
+   397→        0
+   398→      </button>
+   399→
+   400→      {/* Bottom-right action: delete OR submit */}
+   401→      <button
+   402→        key="action"
+   403→        type="button"
+   404→        className={cn(btnClass, 'text-muted-foreground')}
+   405→        onClick={actionVariant === 'submit' ? onSubmit : onDelete}
+   406→        disabled={disabled}
+   407→        aria-label={actionVariant === 'submit' ? 'Confirm PIN' : 'Delete last digit'}
+   408→      >
+   409→        {actionVariant === 'submit'
+   410→          ? <CheckCircle2 className="h-6 w-6 text-primary" />
+   411→          : <Delete className="h-6 w-6" />}
+   412→      </button>
+   413→    </div>
+   414→  )
+   415→}
+   416→
+   417→// =============================================================================
+   418→// CooldownTimer — countdown shown during progressive lockout
+   419→// =============================================================================
+   420→
+   421→function CooldownTimer({ until, onExpire }: { until: number; onExpire: () => void }) {
+   422→  const [remaining, setRemaining] = useState(() => Math.max(0, Math.ceil((until - Date.now()) / 1000)))
+   423→
+   424→  useEffect(() => {
+   425→    const tick = () => {
+   426→      const r = Math.max(0, Math.ceil((until - Date.now()) / 1000))
+   427→      setRemaining(r)
+   428→      if (r <= 0) { onExpire() }
+   429→    }
+   430→    tick()
+   431→    const id = setInterval(tick, 500)
+   432→    return () => clearInterval(id)
+   433→  }, [until, onExpire])
+   434→
+   435→  const mins = Math.floor(remaining / 60)
+   436→  const secs = remaining % 60
+   437→  const display = mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `${secs}s`
+   438→
+   439→  return (
+   440→    <motion.div
+   441→      initial={{ opacity: 0, y: 4 }}
+   442→      animate={{ opacity: 1, y: 0 }}
+   443→      className="flex flex-col items-center gap-1 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-center"
+   444→      role="status"
+   445→      aria-live="polite"
+   446→    >
+   447→      <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+   448→        <Clock className="h-4 w-4" />
+   449→        <span className="text-sm font-medium">Too many attempts</span>
+   450→      </div>
+   451→      <div className="text-2xl font-bold tabular-nums text-amber-700 dark:text-amber-400">
+   452→        {display}
+   453→      </div>
+   454→      <div className="text-xs text-muted-foreground">Try again in a moment</div>
+   455→    </motion.div>
+   456→  )
+   457→}
+   458→
+   459→// =============================================================================
+   460→// LockScreen overlay — full-screen PIN/biometric unlock gate
+   461→// =============================================================================
+   462→
+   463→interface LockScreenProps {
+   464→  /** Optional callback fired when the unlock transition finishes. */
+   465→  onUnlocked?: () => void
+   466→}
+   467→
+   468→export function LockScreen({ onUnlocked }: LockScreenProps) {
+   469→  const isLocked = useAppStore((s) => s.isLocked)
+   470→  const setLocked = useAppStore((s) => s.setLocked)
+   471→  const appLockEnabled = useAppStore((s) => s.appLockEnabled)
+   472→  const sound = useSound()
+   473→
+   474→  const [data, setData] = useState<AppLockData | null>(null)
+   475→  const [mounted, setMounted] = useState(false)
+   476→  const [entered, setEntered] = useState('')
+   477→  const [shake, setShake] = useState(false)
+   478→  const [verifying, setVerifying] = useState(false)
+   479→  const [unlocked, setUnlocked] = useState(false)
+   480→  const [bioBusy, setBioBusy] = useState(false)
+   481→
+   482→  // Avoid SSR/CSR mismatch: only act on the client.
+   483→  useEffect(() => { setMounted(true) }, [])
+   484→
+   485→  // Hydrate lock data from localStorage.
+   486→  useEffect(() => {
+   487→    if (!mounted) return
+   488→    setData(loadData())
+   489→  }, [mounted, isLocked])
+   490→
+   491→  // Reset PIN entry on mount.
+   492→  useEffect(() => {
+   493→    if (isLocked) { setEntered(''); setShake(false); setUnlocked(false) }
+   494→  }, [isLocked])
+   495→
+   496→  const pinLength: PinLength = data?.pinLength ?? 4
+   497→
+   498→  const inCooldown = !!data?.cooldownUntil && data.cooldownUntil > Date.now()
+   499→  const cooldownMs = data?.cooldownUntil ?? 0
+   500→
+   501→  const handleUnlocked = useCallback(() => {
+   502→    setUnlocked(true)
+   503→    sound.playUnlock()
+   504→    // Persist: clear failed attempts + cooldown.
+   505→    if (data) {
+   506→      const next: AppLockData = { ...data, failedAttempts: 0, cooldownUntil: null }
+   507→      saveData(next); setData(next)
+   508→    }
+   509→    // Let the success animation play, then drop the lock for real.
+   510→    const t = setTimeout(() => {
+   511→      setLocked(false)
+   512→      onUnlocked?.()
+   513→    }, 320)
+   514→    return () => clearTimeout(t)
+   515→  }, [data, onUnlocked, setLocked, sound])
+   516→
+   517→  const submit = useCallback(async (pin: string) => {
+   518→    if (!data || verifying || inCooldown) return
+   519→    setVerifying(true)
+   520→    const ok = await verifyPin(pin, data)
+   521→    setVerifying(false)
+   522→    if (ok) {
+   523→      handleUnlocked()
+   524→    } else {
+   525→      // Shake, then clear + increment attempts.
+   526→      setShake(true)
+   527→      sound.playError()
+   528→      setTimeout(() => setShake(false), 320)
+   529→      setEntered('')
+   530→      const attempts = data.failedAttempts + 1
+   531→      const next: AppLockData = { ...data, failedAttempts: attempts }
+   532→      // Every MAX_FAILED_BEFORE_COOLDOWN failures → escalate.
+   533→      if (attempts % MAX_FAILED_BEFORE_COOLDOWN === 0) {
+   534→        const idx = Math.min(
+   535→          Math.floor(attempts / MAX_FAILED_BEFORE_COOLDOWN) - 1,
+   536→          COOLDOWN_LADDER.length - 1
+   537→        )
+   538→        next.cooldownUntil = Date.now() + COOLDOWN_LADDER[idx] * 1000
+   539→        toast.error(`Too many attempts. Locked for ${formatDuration(COOLDOWN_LADDER[idx])}.`)
+   540→      } else {
+   541→        toast.error('Wrong PIN', {
+   542→          description: `${MAX_FAILED_BEFORE_COOLDOWN - (attempts % MAX_FAILED_BEFORE_COOLDOWN)} attempts before cooldown`,
+   543→        })
+   544→      }
+   545→      saveData(next); setData(next)
+   546→    }
+   547→  }, [data, verifying, inCooldown, sound, handleUnlocked])
+   548→
+   549→  const tryBiometric = useCallback(async () => {
+   550→    if (!data?.biometricCredentialId || bioBusy) return
+   551→    setBioBusy(true)
+   552→    const ok = await unlockWithBiometric(data.biometricCredentialId)
+   553→    setBioBusy(false)
+   554→    if (ok) {
+   555→      handleUnlocked()
+   556→    } else {
+   557→      toast('Biometric unavailable', {
+   558→        description: 'Use your PIN to unlock',
+   559→      })
+   560→    }
+   561→  }, [data, bioBusy, handleUnlocked])
+   562→
+   563→  // Auto-trigger biometric when the lock screen first appears (one-shot).
+   564→  const autoBioTriedRef = useRef(false)
+   565→  useEffect(() => {
+   566→    if (!mounted || !isLocked || !data) return
+   567→    if (autoBioTriedRef.current) return
+   568→    autoBioTriedRef.current = true
+   569→    if (data.biometricEnabled && data.biometricCredentialId) {
+   570→      // Defer so the lock screen paints first (zero-flash).
+   571→      const t = setTimeout(() => { void tryBiometric() }, 300)
+   572→      return () => clearTimeout(t)
+   573→    }
+   574→  }, [mounted, isLocked, data, tryBiometric])
+   575→
+   576→  // Reset the auto-bio ref when the lock re-engages.
+   577→  useEffect(() => {
+   578→    if (isLocked) autoBioTriedRef.current = false
+   579→  }, [isLocked])
+   580→
+   581→  // ---- focus trap (keyboard nav within the lock screen) ----
+   582→  const containerRef = useRef<HTMLDivElement | null>(null)
+   583→  useEffect(() => {
+   584→    if (!isLocked || !mounted) return
+   585→    const node = containerRef.current
+   586→    if (!node) return
+   587→    const focusables = () => Array.from(
+   588→      node.querySelectorAll<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+   589→    )
+   590→    // Focus the first digit by default.
+   591→    const t = setTimeout(() => {
+   592→      const fs = focusables()
+   593→      // Prefer the biometric button (if present) so user can just press Enter;
+   594→      // otherwise focus the digit "5" in the middle.
+   595→      const target = fs.find((el) => el.getAttribute('aria-label') === 'Digit 5')
+   596→        ?? fs.find((el) => el.getAttribute('aria-label') === 'Unlock with biometric')
+   597→        ?? fs[0]
+   598→      target?.focus()
+   599→    }, 60)
+   600→    const handler = (e: globalThis.KeyboardEvent) => {
+   601→      if (e.key !== 'Tab') return
+   602→      const fs = focusables()
+   603→      if (fs.length === 0) return
+   604→      const first = fs[0]
+   605→      const last = fs[fs.length - 1]
+   606→      const active = document.activeElement as HTMLElement | null
+   607→      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
+   608→      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+   609→    }
+   610→    node.addEventListener('keydown', handler)
+   611→    return () => { clearTimeout(t); node.removeEventListener('keydown', handler) }
+   612→  }, [isLocked, mounted])
+   613→
+   614→  // Physical keyboard: digits, Backspace, Enter.
+   615→  useEffect(() => {
+   616→    if (!isLocked || !mounted) return
+   617→    const handler = (e: globalThis.KeyboardEvent) => {
+   618→      if (inCooldown || verifying || unlocked) return
+   619→      if (/^[0-9]$/.test(e.key)) {
+   620→        e.preventDefault()
+   621→        setEntered((cur) => cur.length < pinLength ? cur + e.key : cur)
+   622→      } else if (e.key === 'Backspace') {
+   623→        e.preventDefault()
+   624→        setEntered((cur) => cur.slice(0, -1))
+   625→      } else if (e.key === 'Enter') {
+   626→        e.preventDefault()
+   627→        setEntered((cur) => {
+   628→          if (cur.length === pinLength) void submit(cur)
+   629→          return cur
+   630→        })
+   631→      }
+   632→    }
+   633→    window.addEventListener('keydown', handler)
+   634→    return () => window.removeEventListener('keydown', handler)
+   635→  }, [isLocked, mounted, inCooldown, verifying, unlocked, pinLength, submit])
+   636→
+   637→  // Auto-submit when the user fills the expected PIN length.
+   638→  useEffect(() => {
+   639→    if (entered.length === pinLength && pinLength > 0) {
+   640→      void submit(entered)
+   641→    }
+   642→  }, [entered, pinLength, submit])
+   643→
+   644→  // ---- render ----
+   645→  if (!mounted) return null
+   646→
+   647→  // Don't show the lock screen if App Lock isn't enabled at all.
+   648→  const shouldShow = isLocked && appLockEnabled
+   649→  if (!shouldShow) return null
+   650→
+   651→  // If data isn't loaded yet, show a blank backdrop (zero-flash protection).
+   652→  const ready = !!data
+   653→
+   654→  return (
+   655→    <AnimatePresence>
+   656→      {shouldShow && (
+   657→        <motion.div
+   658→          ref={containerRef}
+   659→          role="dialog"
+   660→          aria-modal="true"
+   661→          aria-label="App locked. Enter your PIN to continue."
+   662→          className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-background/95 backdrop-blur-md px-4"
+   663→          initial={{ opacity: 0 }}
+   664→          animate={unlocked ? { opacity: 0, scale: 1.03 } : { opacity: 1, scale: 1 }}
+   665→          exit={{ opacity: 0, scale: 1.03 }}
+   666→          transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+   667→        >
+   668→          {/* Brand lock icon */}
+   669→          <motion.div
+   670→            initial={{ scale: 0.8, opacity: 0 }}
+   671→            animate={{ scale: 1, opacity: 1 }}
+   672→            transition={{ delay: 0.05, type: 'spring', stiffness: 320, damping: 26 }}
+   673→            className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-white shadow-lg shadow-emerald-500/30"
+   674→          >
+   675→            <Lock className="h-7 w-7" />
+   676→          </motion.div>
+   677→
+   678→          <h2 className="text-lg font-semibold tracking-tight">StudentTemp is locked</h2>
+   679→          <p className="mt-1 text-sm text-muted-foreground">
+   680→            {ready ? 'Enter your PIN to continue' : 'Preparing secure unlock…'}
+   681→          </p>
+   682→
+   683→          {/* Dot indicators */}
+   684→          <div className="my-6 h-6">
+   685→            {ready && (
+   686→              <PinDots count={pinLength} filled={entered.length} shake={shake} error={shake} />
+   687→            )}
+   688→          </div>
+   689→
+   690→          {/* Cooldown OR pin pad */}
+   691→          <div className="w-full max-w-xs">
+   692→            {inCooldown ? (
+   693→              <CooldownTimer until={cooldownMs} onExpire={() => {
+   694→                if (!data) return
+   695→                const next = { ...data, cooldownUntil: null }
+   696→                saveData(next); setData(next)
+   697→              }} />
+   698→            ) : ready ? (
+   699→              <PinPad
+   700→                onDigit={(d) => setEntered((cur) => cur.length < pinLength ? cur + d : cur)}
+   701→                onDelete={() => setEntered((cur) => cur.slice(0, -1))}
+   702→                onSubmit={() => { if (entered.length === pinLength) void submit(entered) }}
+   703→                onBiometric={tryBiometric}
+   704→                showBiometric={!!data.biometricEnabled && !!data.biometricCredentialId}
+   705→                biometricBusy={bioBusy}
+   706→                disabled={verifying}
+   707→                actionVariant="delete"
+   708→              />
+   709→            ) : (
+   710→              <div className="flex items-center justify-center py-8">
+   711→                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+   712→              </div>
+   713→            )}
+   714→          </div>
+   715→
+   716→          {/* Biometric "breathing" prompt while waiting for the OS */}
+   717→          {ready && data.biometricEnabled && data.biometricCredentialId && bioBusy && (
+   718→            <motion.div
+   719→              className="mt-6 flex items-center gap-2 text-xs text-muted-foreground"
+   720→              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+   721→            >
+   722→              <motion.span
+   723→                aria-hidden
+   724→                animate={{ opacity: [1, 0.7, 1] }}
+   725→                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+   726→                className="text-primary"
+   727→              >
+   728→                <Fingerprint className="h-4 w-4" />
+   729→              </motion.span>
+   730→              Waiting for biometric…
+   731→            </motion.div>
+   732→          )}
+   733→
+   734→          {/* Footer notice */}
+   735→          <p className="mt-8 max-w-xs text-center text-[11px] leading-relaxed text-muted-foreground">
+   736→            App Lock protects this device only. Your inboxes on the server are unaffected.
+   737→          </p>
+   738→        </motion.div>
+   739→      )}
+   740→    </AnimatePresence>
+   741→  )
+   742→}
+   743→
+   744→// =============================================================================
+   745→// SetupDialog — first-time PIN creation + optional biometric enrollment
+   746→// =============================================================================
+   747→
+   748→type SetupStep = 'enter' | 'confirm' | 'biometric'
+   749→
+   750→function SetupDialog({
+   751→  open, onOpenChange, bioStatus, onConfirm,
+   752→}: {
+   753→  open: boolean
+   754→  onOpenChange: (v: boolean) => void
+   755→  bioStatus: BiometricStatus
+   756→  onConfirm: (pin: string, useBiometric: boolean) => Promise<void>
+   757→}) {
+   758→  const [step, setStep] = useState<SetupStep>('enter')
+   759→  const [firstPin, setFirstPin] = useState('')
+   760→  const [confirmPin, setConfirmPin] = useState('')
+   761→  const [useBiometric, setUseBiometric] = useState(true)
+   762→  const [busy, setBusy] = useState(false)
+   763→  const [shake, setShake] = useState(false)
+   764→  const sound = useSound()
+   765→
+   766→  // Reset on close.
+   767→  useEffect(() => {
+   768→    if (!open) {
+   769→      const t = setTimeout(() => {
+   770→        setStep('enter'); setFirstPin(''); setConfirmPin(''); setUseBiometric(true); setBusy(false); setShake(false)
+   771→      }, 250)
+   772→      return () => clearTimeout(t)
+   773→    }
+   774→  }, [open])
+   775→
+   776→  const dotCount = useMemo(() => {
+   777→    // Show min 4 dots; grow up to 6 as the user types more digits.
+   778→    return Math.max(PIN_MIN, Math.min(firstPin.length, PIN_MAX))
+   779→  }, [firstPin])
+   780→
+   781→  const handleEnterDigit = (d: string) => {
+   782→    if (step === 'enter') {
+   783→      setFirstPin((cur) => cur.length < PIN_MAX ? cur + d : cur)
+   784→    } else if (step === 'confirm') {
+   785→      setConfirmPin((cur) => cur.length < firstPin.length ? cur + d : cur)
+   786→    }
+   787→  }
+   788→  const handleDelete = () => {
+   789→    if (step === 'enter') setFirstPin((cur) => cur.slice(0, -1))
+   790→    else setConfirmPin((cur) => cur.slice(0, -1))
+   791→  }
+   792→  const handleSubmit = () => {
+   793→    if (step === 'enter') {
+   794→      if (firstPin.length < PIN_MIN) {
+   795→        toast.error('PIN must be at least 4 digits')
+   796→        return
+   797→      }
+   798→      setStep('confirm')
+   799→    } else if (step === 'confirm') {
+   800→      if (confirmPin !== firstPin) {
+   801→        setShake(true); sound.playError()
+   802→        setTimeout(() => { setShake(false); setConfirmPin('') }, 320)
+   803→        toast.error('PINs do not match', { description: 'Try entering it again' })
+   804→        return
+   805→      }
+   806→      // Skip biometric step if unavailable.
+   807→      if (bioStatus === 'available') setStep('biometric')
+   808→      else void finalize(false)
+   809→    } else if (step === 'biometric') {
+   810→      void finalize(useBiometric)
+   811→    }
+   812→  }
+   813→
+   814→  const finalize = async (withBio: boolean) => {
+   815→    setBusy(true)
+   816→    await onConfirm(firstPin, withBio)
+   817→    setBusy(false)
+   818→    onOpenChange(false)
+   819→  }
+   820→
+   821→  const currentPin = step === 'enter' ? firstPin : confirmPin
+   822→  const currentLen = step === 'enter' ? firstPin.length : confirmPin.length
+   823→  const expectedLen = step === 'enter' ? Math.max(PIN_MIN, firstPin.length) : firstPin.length
+   824→  const title =
+   825→    step === 'enter' ? 'Set your PIN' :
+   826→    step === 'confirm' ? 'Confirm your PIN' :
+   827→    'Enable biometric?'
+   828→
+   829→  return (
+   830→    <Dialog open={open} onOpenChange={onOpenChange}>
+   831→      <DialogContent className="max-w-sm">
+   832→        <DialogHeader>
+   833→          <DialogTitle className="flex items-center gap-2">
+   834→            <KeyRound className="h-4 w-4 text-primary" />
+   835→            {title}
+   836→          </DialogTitle>
+   837→          <DialogDescription>
+   838→            {step === 'enter' && 'Pick a 4-6 digit PIN. This PIN is never sent to the server.'}
+   839→            {step === 'confirm' && 'Re-enter the PIN to make sure it\'s correct.'}
+   840→            {step === 'biometric' && 'Use Touch ID / Face ID / fingerprint to unlock faster? You can always fall back to your PIN.'}
+   841→          </DialogDescription>
+   842→        </DialogHeader>
+   843→
+   844→        {step !== 'biometric' ? (
+   845→          <>
+   846→            <div className="flex justify-center py-2">
+   847→              <PinDots count={step === 'enter' ? dotCount : expectedLen} filled={currentLen} shake={shake} error={shake} />
+   848→            </div>
+   849→            <PinPad
+   850→              onDigit={handleEnterDigit}
+   851→              onDelete={handleDelete}
+   852→              onSubmit={handleSubmit}
+   853→              actionVariant={currentLen >= PIN_MIN ? 'submit' : 'delete'}
+   854→              disabled={busy}
+   855→            />
+   856→            {step === 'enter' && (
+   857→              <p className="text-center text-[11px] text-muted-foreground">
+   858→                {firstPin.length < PIN_MIN
+   859→                  ? `${PIN_MIN - firstPin.length} more digit${PIN_MIN - firstPin.length === 1 ? '' : 's'} minimum`
+   860→                  : `${firstPin.length}-digit PIN`}
+   861→              </p>
+   862→            )}
+   863→          </>
+   864→        ) : (
+   865→          <div className="space-y-4">
+   866→            <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+   867→              <Fingerprint className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+   868→              <div className="text-sm">
+   869→                <div className="font-medium">Biometric unlock</div>
+   870→                <div className="text-xs text-muted-foreground mt-0.5">
+   871→                  Your device will prompt you to authenticate. The PIN you just set always works as a fallback.
+   872→                </div>
+   873→              </div>
+   874→            </div>
+   875→            <div className="flex gap-2">
+   876→              <Button variant="outline" className="flex-1" onClick={() => void finalize(false)} disabled={busy}>
+   877→                Skip
+   878→              </Button>
+   879→              <Button className="flex-1 gap-2" onClick={() => void finalize(true)} disabled={busy}>
+   880→                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />}
+   881→                Enable biometric
+   882→              </Button>
+   883→            </div>
+   884→          </div>
+   885→        )}
+   886→
+   887→        {/* Step indicator */}
+   888→        <div className="flex items-center justify-center gap-1.5 pt-1">
+   889→          {(['enter', 'confirm', 'biometric'] as SetupStep[])
+   890→            .filter((s) => bioStatus === 'available' || s !== 'biometric')
+   891→            .map((s) => (
+   892→              <span
+   893→                key={s}
+   894→                className={cn(
+   895→                  'h-1.5 w-6 rounded-full transition-colors',
+   896→                  s === step ? 'bg-primary' : (stepOrder(step) > stepOrder(s) ? 'bg-primary/40' : 'bg-muted')
+   897→                )}
+   898→              />
+   899→            ))}
+   900→        </div>
+   901→      </DialogContent>
+   902→    </Dialog>
+   903→  )
+   904→}
+   905→
+   906→function stepOrder(s: SetupStep): number {
+   907→  return s === 'enter' ? 0 : s === 'confirm' ? 1 : 2
+   908→}
+   909→
+   910→// =============================================================================
+   911→// ChangePINDialog — verify old PIN, then set a new one
+   912→// =============================================================================
+   913→
+   914→function ChangePINDialog({
+   915→  open, onOpenChange, currentData, onChanged,
+   916→}: {
+   917→  open: boolean
+   918→  onOpenChange: (v: boolean) => void
+   919→  currentData: AppLockData
+   920→  onChanged: (next: AppLockData) => void
+   921→}) {
+   922→  const [phase, setPhase] = useState<'old' | 'new' | 'confirm'>('old')
+   923→  const [oldPin, setOldPin] = useState('')
+   924→  const [newPin, setNewPin] = useState('')
+   925→  const [confirmPin, setConfirmPin] = useState('')
+   926→  const [busy, setBusy] = useState(false)
+   927→  const [shake, setShake] = useState(false)
+   928→  const sound = useSound()
+   929→
+   930→  useEffect(() => {
+   931→    if (!open) {
+   932→      const t = setTimeout(() => {
+   933→        setPhase('old'); setOldPin(''); setNewPin(''); setConfirmPin(''); setBusy(false); setShake(false)
+   934→      }, 250)
+   935→      return () => clearTimeout(t)
+   936→    }
+   937→  }, [open])
+   938→
+   939→  const expectedLen =
+   940→    phase === 'old' ? currentData.pinLength :
+   941→    phase === 'new' ? Math.max(PIN_MIN, newPin.length) :
+   942→    newPin.length
+   943→
+   944→  const currentPin = phase === 'old' ? oldPin : phase === 'new' ? newPin : confirmPin
+   945→  const currentLen = currentPin.length
+   946→  const maxLen = phase === 'old' ? currentData.pinLength : PIN_MAX
+   947→
+   948→  const handleDigit = (d: string) => {
+   949→    if (phase === 'old') setOldPin((c) => c.length < currentData.pinLength ? c + d : c)
+   950→    else if (phase === 'new') setNewPin((c) => c.length < PIN_MAX ? c + d : c)
+   951→    else setConfirmPin((c) => c.length < newPin.length ? c + d : c)
+   952→  }
+   953→  const handleDelete = () => {
+   954→    if (phase === 'old') setOldPin((c) => c.slice(0, -1))
+   955→    else if (phase === 'new') setNewPin((c) => c.slice(0, -1))
+   956→    else setConfirmPin((c) => c.slice(0, -1))
+   957→  }
+   958→  const handleSubmit = async () => {
+   959→    if (phase === 'old') {
+   960→      if (oldPin.length !== currentData.pinLength) return
+   961→      setBusy(true)
+   962→      const ok = await verifyPin(oldPin, currentData)
+   963→      setBusy(false)
+   964→      if (!ok) {
+   965→        setShake(true); sound.playError()
+   966→        setTimeout(() => { setShake(false); setOldPin('') }, 320)
+   967→        toast.error('Current PIN is incorrect')
+   968→        return
+   969→      }
+   970→      setPhase('new')
+   971→    } else if (phase === 'new') {
+   972→      if (newPin.length < PIN_MIN) {
+   973→        toast.error('PIN must be at least 4 digits')
+   974→        return
+   975→      }
+   976→      setPhase('confirm')
+   977→    } else if (phase === 'confirm') {
+   978→      if (confirmPin !== newPin) {
+   979→        setShake(true); sound.playError()
+   980→        setTimeout(() => { setShake(false); setConfirmPin('') }, 320)
+   981→        toast.error('PINs do not match')
+   982→        return
+   983→      }
+   984→      setBusy(true)
+   985→      const enc = await encryptMarker(newPin)
+   986→      const next: AppLockData = {
+   987→        ...currentData,
+   988→        ...enc,
+   989→        failedAttempts: 0,
+   990→        cooldownUntil: null,
+   991→        createdAt: new Date().toISOString(),
+   992→      }
+   993→      saveData(next)
+   994→      setBusy(false)
+   995→      onChanged(next)
+   996→      toast.success('PIN changed')
+   997→      onOpenChange(false)
+   998→    }
+   999→  }
+  1000→
+  1001→  const title =
+  1002→    phase === 'old' ? 'Enter current PIN' :
+  1003→    phase === 'new' ? 'Set a new PIN' :
+  1004→    'Confirm new PIN'
+  1005→
+  1006→  return (
+  1007→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1008→      <DialogContent className="max-w-sm">
+  1009→        <DialogHeader>
+  1010→          <DialogTitle className="flex items-center gap-2">
+  1011→            <RefreshCw className="h-4 w-4 text-primary" />
+  1012→            {title}
+  1013→          </DialogTitle>
+  1014→          <DialogDescription>
+  1015→            {phase === 'old' && 'Verify it\'s you first.'}
+  1016→            {phase === 'new' && 'Pick a new 4-6 digit PIN.'}
+  1017→            {phase === 'confirm' && 'Re-enter the new PIN to confirm.'}
+  1018→          </DialogDescription>
+  1019→        </DialogHeader>
+  1020→        <div className="flex justify-center py-2">
+  1021→          <PinDots count={expectedLen} filled={currentLen} shake={shake} error={shake} />
+  1022→        </div>
+  1023→        <PinPad
+  1024→          onDigit={handleDigit}
+  1025→          onDelete={handleDelete}
+  1026→          onSubmit={handleSubmit}
+  1027→          actionVariant={currentLen >= (phase === 'old' ? currentData.pinLength : PIN_MIN) ? 'submit' : 'delete'}
+  1028→          disabled={busy}
+  1029→        />
+  1030→        {busy && (
+  1031→          <div className="flex items-center justify-center text-xs text-muted-foreground gap-2">
+  1032→            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying…
+  1033→          </div>
+  1034→        )}
+  1035→      </DialogContent>
+  1036→    </Dialog>
+  1037→  )
+  1038→}
+  1039→
+  1040→// =============================================================================
+  1041→// useAutoLock — Page Visibility API hook (exported for AppShell to use)
+  1042→// =============================================================================
+  1043→
+  1044→/**
+  1045→ * Watches the document visibility state and locks the app when the tab is
+  1046→ * backgrounded for longer than the configured delay. Also exposes a manual
+  1047→ * `lockNow` callback. No-op when App Lock is disabled.
+  1048→ *
+  1049→ * Mount this once at the app root (AppShell) so the lock triggers regardless
+  1050→ * of which section is currently active.
+  1051→ */
+  1052→export function useAutoLock() {
+  1053→  const appLockEnabled = useAppStore((s) => s.appLockEnabled)
+  1054→  const isLocked = useAppStore((s) => s.isLocked)
+  1055→  const setLocked = useAppStore((s) => s.setLocked)
+  1056→  const hiddenAtRef = useRef<number | null>(null)
+  1057→
+  1058→  useEffect(() => {
+  1059→    if (!appLockEnabled) return
+  1060→    if (typeof document === 'undefined') return
+  1061→
+  1062→    const onVisChange = () => {
+  1063→      if (document.hidden) {
+  1064→        hiddenAtRef.current = Date.now()
+  1065→      } else {
+  1066→        const hiddenAt = hiddenAtRef.current
+  1067→        hiddenAtRef.current = null
+  1068→        if (hiddenAt == null) return
+  1069→        const data = loadData()
+  1070→        const delay = data?.autoLockDelay ?? 120
+  1071→        if (delay <= 0) return // Never
+  1072→        const elapsed = Date.now() - hiddenAt
+  1073→        if (elapsed >= delay * 1000) {
+  1074→          // Lock while still hidden→visible transition; the lock screen mounts
+  1075→          // before the user can see the unlocked content (zero-flash).
+  1076→          setLocked(true)
+  1077→        }
+  1078→      }
+  1079→    }
+  1080→
+  1081→    const onBlur = () => {
+  1082→      // Some browsers fire `blur` without `visibilitychange` on quick tab switches.
+  1083→      // We rely on visibilitychange as the source of truth; blur is a fallback.
+  1084→      if (document.visibilityState === 'hidden') return
+  1085→      // No-op: page is still visible, just lost focus.
+  1086→    }
+  1087→
+  1088→    document.addEventListener('visibilitychange', onVisChange)
+  1089→    window.addEventListener('blur', onBlur)
+  1090→    return () => {
+  1091→      document.removeEventListener('visibilitychange', onVisChange)
+  1092→      window.removeEventListener('blur', onBlur)
+  1093→    }
+  1094→  }, [appLockEnabled, setLocked])
+  1095→
+  1096→  const lockNow = useCallback(() => {
+  1097→    setLocked(true)
+  1098→  }, [setLocked])
+  1099→
+  1100→  return { lockNow, isLocked }
+  1101→}
+  1102→
+  1103→// =============================================================================
+  1104→// AppLockSection — settings UI
+  1105→// =============================================================================
+  1106→
+  1107→export function AppLockSection({ triggerGenerate: _triggerGenerate }: { triggerGenerate: (email: string) => void }) {
+  1108→  const appLockEnabled = useAppStore((s) => s.appLockEnabled)
+  1109→  const setAppLockEnabled = useAppStore((s) => s.setAppLockEnabled)
+  1110→  const setLocked = useAppStore((s) => s.setLocked)
+  1111→
+  1112→  const [mounted, setMounted] = useState(false)
+  1113→  const [data, setData] = useState<AppLockData | null>(null)
+  1114→  const [bioStatus, setBioStatus] = useState<BiometricStatus>('unsupported')
+  1115→  const [setupOpen, setSetupOpen] = useState(false)
+  1116→  const [changeOpen, setChangeOpen] = useState(false)
+  1117→  const [forgotOpen, setForgotOpen] = useState(false)
+  1118→
+  1119→  useEffect(() => {
+  1120→    setMounted(true)
+  1121→    setData(loadData())
+  1122→    void getBiometricStatus().then(setBioStatus)
+  1123→  }, [])
+  1124→
+  1125→  // Keep local data state in sync if the store flag flips.
+  1126→  useEffect(() => {
+  1127→    if (appLockEnabled && !data) setData(loadData())
+  1128→    if (!appLockEnabled && data) setData(null)
+  1129→  }, [appLockEnabled, data])
+  1130→
+  1131→  // ---- handlers ----
+  1132→  const handleToggle = (next: boolean) => {
+  1133→    if (next) {
+  1134→      // Need to set up a PIN first.
+  1135→      if (typeof crypto === 'undefined' || !crypto.subtle) {
+  1136→        toast.error('App Lock unavailable', {
+  1137→          description: 'Web Crypto requires a secure (HTTPS) context.',
+  1138→        })
+  1139→        return
+  1140→      }
+  1141→      setSetupOpen(true)
+  1142→    } else {
+  1143→      // Disable: clear local encrypted state.
+  1144→      saveData(null)
+  1145→      setData(null)
+  1146→      setAppLockEnabled(false)
+  1147→      setLocked(false)
+  1148→      toast.success('App Lock disabled')
+  1149→    }
+  1150→  }
+  1151→
+  1152→  const handleSetupConfirm = async (pin: string, useBiometric: boolean) => {
+  1153→    let bioCredId: string | undefined
+  1154→    if (useBiometric) {
+  1155→      const credId = await registerBiometric()
+  1156→      if (credId) {
+  1157→        bioCredId = credId
+  1158→        toast.success('Biometric enabled')
+  1159→      } else {
+  1160→        toast('Biometric enrollment failed', {
+  1161→          description: 'PIN-only mode active. You can retry from settings.',
+  1162→        })
+  1163→      }
+  1164→    }
+  1165→    const enc = await encryptMarker(pin)
+  1166→    const next: AppLockData = {
+  1167→      version: 1,
+  1168→      ...enc,
+  1169→      autoLockDelay: 120,
+  1170→      biometricEnabled: !!bioCredId,
+  1171→      biometricCredentialId: bioCredId,
+  1172→      createdAt: new Date().toISOString(),
+  1173→      failedAttempts: 0,
+  1174→      cooldownUntil: null,
+  1175→    }
+  1176→    saveData(next)
+  1177→    setData(next)
+  1178→    setAppLockEnabled(true)
+  1179→    toast.success('App Lock enabled', {
+  1180→      description: bioCredId ? 'PIN + biometric ready' : 'PIN ready',
+  1181→    })
+  1182→  }
+  1183→
+  1184→  const handleAutoLockChange = (v: AutoLockDelaySeconds) => {
+  1185→    if (!data) return
+  1186→    const next = { ...data, autoLockDelay: v }
+  1187→    saveData(next)
+  1188→    setData(next)
+  1189→    toast.success('Auto-lock delay updated')
+  1190→  }
+  1191→
+  1192→  const handleBiometricToggle = async (enable: boolean) => {
+  1193→    if (!data) return
+  1194→    if (enable) {
+  1195→      const credId = await registerBiometric()
+  1196→      if (!credId) {
+  1197→        toast.error('Biometric enrollment failed')
+  1198→        return
+  1199→      }
+  1200→      const next = { ...data, biometricEnabled: true, biometricCredentialId: credId }
+  1201→      saveData(next); setData(next)
+  1202→      toast.success('Biometric enabled')
+  1203→    } else {
+  1204→      const next = { ...data, biometricEnabled: false, biometricCredentialId: undefined }
+  1205→      saveData(next); setData(next)
+  1206→      toast.success('Biometric disabled')
+  1207→    }
+  1208→  }
+  1209→
+  1210→  const handleForgot = () => {
+  1211→    saveData(null)
+  1212→    setData(null)
+  1213→    setAppLockEnabled(false)
+  1214→    setLocked(false)
+  1215→    setForgotOpen(false)
+  1216→    toast.success('Local App Lock data cleared', {
+  1217→      description: 'Your inboxes are unaffected.',
+  1218→    })
+  1219→  }
+  1220→
+  1221→  const handleLockNow = () => {
+  1222→    setLocked(true)
+  1223→    toast('Locked', { description: 'Enter your PIN to resume' })
+  1224→  }
+  1225→
+  1226→  const handleTestLock = () => {
+  1227→    // Demo helper: locks immediately so the user can see the LockScreen overlay.
+  1228→    setLocked(true)
+  1229→  }
+  1230→
+  1231→  // ---- render ----
+  1232→  // SSR placeholder to avoid hydration mismatch (store flag hydrates client-side).
+  1233→  if (!mounted) {
+  1234→    return (
+  1235→      <div className="space-y-6 max-w-3xl">
+  1236→        <div>
+  1237→          <h1 className="text-xl font-bold flex items-center gap-2">
+  1238→            <Shield className="h-5 w-5 text-emerald-500" /> App Lock
+  1239→          </h1>
+  1240→          <p className="mt-0.5 text-sm text-muted-foreground">Loading…</p>
+  1241→        </div>
+  1242→      </div>
+  1243→    )
+  1244→  }
+  1245→
+  1246→  return (
+  1247→    <div className="space-y-6 max-w-3xl">
+  1248→      {/* Header */}
+  1249→      <div>
+  1250→        <h1 className="text-xl font-bold flex items-center gap-2">
+  1251→          <Shield className="h-5 w-5 text-emerald-500" /> App Lock
+  1252→        </h1>
+  1253→        <p className="mt-0.5 text-sm text-muted-foreground">
+  1254→          Protect this device&apos;s UI from casual shoulder-surfing when you step away.
+  1255→        </p>
+  1256→      </div>
+  1257→
+  1258→      {/* Notice */}
+  1259→      <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+  1260→        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+  1261→        <div>
+  1262→          <p className="font-medium text-amber-700 dark:text-amber-400">Local convenience feature</p>
+  1263→          <p className="mt-0.5 text-xs text-muted-foreground">
+  1264→            App Lock is a local convenience feature, not a substitute for account security. Anyone with
+  1265→            physical access to this device could still clear browser data to bypass it. The server-side
+  1266→            inbox contents are never affected by App Lock.
+  1267→          </p>
+  1268→        </div>
+  1269→      </div>
+  1270→
+  1271→      {/* Enable toggle */}
+  1272→      <Card>
+  1273→        <CardHeader>
+  1274→          <CardTitle className="flex items-center gap-2 text-base">
+  1275→            <Lock className="h-4 w-4 text-emerald-500" /> App Lock
+  1276→          </CardTitle>
+  1277→          <CardDescription>
+  1278→            Require a PIN (or biometric) to view StudentTemp on this device.
+  1279→          </CardDescription>
+  1280→        </CardHeader>
+  1281→        <CardContent>
+  1282→          <div className="flex items-start gap-3 py-1">
+  1283→            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted">
+  1284→              {appLockEnabled
+  1285→                ? <ShieldCheck className="h-4 w-4 text-emerald-500" />
+  1286→                : <ShieldAlert className="h-4 w-4 text-muted-foreground" />}
+  1287→            </div>
+  1288→            <div className="flex-1 min-w-0">
+  1289→              <div className="text-sm font-medium">
+  1290→                {appLockEnabled ? 'App Lock is on' : 'App Lock is off'}
+  1291→              </div>
+  1292→              <div className="text-xs text-muted-foreground">
+  1293→                {appLockEnabled
+  1294→                  ? `Locked with a ${data?.pinLength ?? 4}-digit PIN${data?.biometricEnabled ? ' + biometric' : ''}.`
+  1295→                  : 'Enable to require a PIN when the app is backgrounded.'}
+  1296→              </div>
+  1297→              {appLockEnabled && (
+  1298→                <div className="mt-2 flex flex-wrap gap-1.5">
+  1299→                  <Badge variant="outline" className="gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+  1300→                    <CheckCircle2 className="h-3 w-3" /> PIN set
+  1301→                  </Badge>
+  1302→                  {data?.biometricEnabled && (
+  1303→                    <Badge variant="outline" className="gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+  1304→                      <Fingerprint className="h-3 w-3" /> Biometric
+  1305→                    </Badge>
+  1306→                  )}
+  1307→                  <Badge variant="outline" className="gap-1 bg-muted">
+  1308→                    <Clock className="h-3 w-3" />
+  1309→                    {data?.autoLockDelay ? formatDuration(data.autoLockDelay) : 'Never'}
+  1310→                  </Badge>
+  1311→                </div>
+  1312→              )}
+  1313→            </div>
+  1314→            <Switch checked={appLockEnabled} onCheckedChange={handleToggle} aria-label="Toggle App Lock" />
+  1315→          </div>
+  1316→        </CardContent>
+  1317→      </Card>
+  1318→
+  1319→      {/* Settings (only when enabled) */}
+  1320→      {appLockEnabled && data && (
+  1321→        <Card>
+  1322→          <CardHeader>
+  1323→            <CardTitle className="flex items-center gap-2 text-base">
+  1324→              <KeyRound className="h-4 w-4 text-emerald-500" /> Settings
+  1325→            </CardTitle>
+  1326→            <CardDescription>Tune the lock behaviour on this device.</CardDescription>
+  1327→          </CardHeader>
+  1328→          <CardContent className="space-y-2">
+  1329→            {/* Auto-lock delay */}
+  1330→            <SettingRow
+  1331→              icon={<Clock className="h-4 w-4" />}
+  1332→              title="Auto-lock delay"
+  1333→              desc="Lock automatically when this tab is hidden for longer than this."
+  1334→            >
+  1335→              <Select
+  1336→                value={String(data.autoLockDelay)}
+  1337→                onValueChange={(v) => handleAutoLockChange(Number(v) as AutoLockDelaySeconds)}
+  1338→              >
+  1339→                <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+  1340→                <SelectContent>
+  1341→                  {AUTO_LOCK_OPTIONS.map((o) => (
+  1342→                    <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>
+  1343→                  ))}
+  1344→                </SelectContent>
+  1345→              </Select>
+  1346→            </SettingRow>
+  1347→
+  1348→            {/* Biometric toggle (only if platform authenticator is available) */}
+  1349→            {bioStatus === 'available' && (
+  1350→              <SettingRow
+  1351→                icon={<Fingerprint className="h-4 w-4 text-primary" />}
+  1352→                title="Biometric unlock"
+  1353→                desc="Use Touch ID / Face ID / fingerprint. PIN always works as a fallback."
+  1354→              >
+  1355→                <Switch
+  1356→                  checked={data.biometricEnabled}
+  1357→                  onCheckedChange={handleBiometricToggle}
+  1358→                  aria-label="Toggle biometric unlock"
+  1359→                />
+  1360→              </SettingRow>
+  1361→            )}
+  1362→
+  1363→            {/* Change PIN */}
+  1364→            <SettingRow
+  1365→              icon={<RefreshCw className="h-4 w-4" />}
+  1366→              title="Change PIN"
+  1367→              desc="Verify your current PIN, then pick a new one."
+  1368→            >
+  1369→              <Button variant="outline" size="sm" onClick={() => setChangeOpen(true)}>
+  1370→                Change
+  1371→              </Button>
+  1372→            </SettingRow>
+  1373→
+  1374→            {/* Lock now */}
+  1375→            <SettingRow
+  1376→              icon={<Lock className="h-4 w-4" />}
+  1377→              title="Lock now"
+  1378→              desc="Immediately require a PIN to continue."
+  1379→            >
+  1380→              <Button variant="outline" size="sm" onClick={handleLockNow} className="gap-1.5">
+  1381→                <Lock className="h-3.5 w-3.5" /> Lock
+  1382→              </Button>
+  1383→            </SettingRow>
+  1384→
+  1385→            {/* Test lock (demo) */}
+  1386→            <SettingRow
+  1387→              icon={<Eye className="h-4 w-4" />}
+  1388→              title="Preview lock screen"
+  1389→              desc="See the unlock UI without changing settings."
+  1390→            >
+  1391→              <Button variant="ghost" size="sm" onClick={handleTestLock}>
+  1392→                Preview
+  1393→              </Button>
+  1394→            </SettingRow>
+  1395→          </CardContent>
+  1396→        </Card>
+  1397→      )}
+  1398→
+  1399→      {/* Forgot PIN / reset */}
+  1400→      {appLockEnabled && (
+  1401→        <Card>
+  1402→          <CardHeader>
+  1403→            <CardTitle className="flex items-center gap-2 text-base text-red-600 dark:text-red-400">
+  1404→              <Trash2 className="h-4 w-4" /> Reset
+  1405→            </CardTitle>
+  1406→            <CardDescription>Clear local App Lock data on this device.</CardDescription>
+  1407→          </CardHeader>
+  1408→          <CardContent>
+  1409→            <SettingRow
+  1410→              icon={<Trash2 className="h-4 w-4 text-red-500" />}
+  1411→              title="Forgot PIN"
+  1412→              desc="Clears the local encrypted marker. You'll need to set up App Lock again. Server-side inboxes are NOT affected."
+  1413→              danger
+  1414→            >
+  1415→              <AlertDialog open={forgotOpen} onOpenChange={setForgotOpen}>
+  1416→                <AlertDialogTrigger asChild>
+  1417→                  <Button variant="outline" size="sm" className="text-red-500 border-red-500/30 hover:bg-red-500/10">
+  1418→                    Forgot PIN
+  1419→                  </Button>
+  1420→                </AlertDialogTrigger>
+  1421→                <AlertDialogContent>
+  1422→                  <AlertDialogHeader>
+  1423→                    <AlertDialogTitle>Clear local App Lock data?</AlertDialogTitle>
+  1424→                    <AlertDialogDescription>
+  1425→                      This removes the encrypted unlock marker, salt, and biometric enrollment from this
+  1426→                      browser. App Lock will be turned off. Your inboxes on the server are completely
+  1427→                      unaffected. You can set up App Lock again afterwards.
+  1428→                    </AlertDialogDescription>
+  1429→                  </AlertDialogHeader>
+  1430→                  <AlertDialogFooter>
+  1431→                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1432→                    <AlertDialogAction
+  1433→                      className="bg-destructive text-white hover:bg-destructive/90"
+  1434→                      onClick={handleForgot}
+  1435→                    >
+  1436→                      Clear local data
+  1437→                    </AlertDialogAction>
+  1438→                  </AlertDialogFooter>
+  1439→                </AlertDialogContent>
+  1440→              </AlertDialog>
+  1441→            </SettingRow>
+  1442→          </CardContent>
+  1443→        </Card>
+  1444→      )}
+  1445→
+  1446→      {/* How it works */}
+  1447→      <Card>
+  1448→        <CardHeader>
+  1449→          <CardTitle className="flex items-center gap-2 text-base">
+  1450→            <ShieldCheck className="h-4 w-4 text-emerald-500" /> How App Lock works
+  1451→          </CardTitle>
+  1452→        </CardHeader>
+  1453→        <CardContent>
+  1454→          <Accordion type="single" collapsible className="w-full">
+  1455→            <AccordionItem value="crypto">
+  1456→              <AccordionTrigger className="text-sm">Where is my PIN stored?</AccordionTrigger>
+  1457→              <AccordionContent className="text-sm text-muted-foreground">
+  1458→                Nowhere in plaintext. Your PIN is run through PBKDF2-SHA256 (100,000 iterations) with a
+  1459→                random 16-byte salt to derive an AES-GCM key. That key encrypts a known marker string, and
+  1460→                only the encrypted marker, salt, and IV are stored in your browser&apos;s localStorage. The
+  1461→                server never sees the PIN or the encrypted marker.
+  1462→              </AccordionContent>
+  1463→            </AccordionItem>
+  1464→            <AccordionItem value="bio">
+  1465→              <AccordionTrigger className="text-sm">How does biometric unlock work?</AccordionTrigger>
+  1466→              <AccordionContent className="text-sm text-muted-foreground">
+  1467→                If your device supports a platform authenticator (Touch ID, Face ID, Windows Hello,
+  1468→                Android fingerprint), we register a discoverable credential at setup. On unlock, we ask
+  1469→                the OS to verify you (userVerification: &quot;required&quot;). If the OS confirms it&apos;s
+  1470→                you, the app unlocks. Your PIN always works as a fallback if biometric fails.
+  1471→              </AccordionContent>
+  1472→            </AccordionItem>
+  1473→            <AccordionItem value="autolock">
+  1474→              <AccordionTrigger className="text-sm">When does it auto-lock?</AccordionTrigger>
+  1475→              <AccordionContent className="text-sm text-muted-foreground">
+  1476→                When the tab is hidden (you switch tabs, minimize the browser, or lock your screen) for
+  1477→                longer than the auto-lock delay. You can also lock manually anytime with the
+  1478→                &quot;Lock&quot; button. The lock screen mounts before the page becomes visible again,
+  1479→                so there&apos;s no flash of unlocked content.
+  1480→              </AccordionContent>
+  1481→            </AccordionItem>
+  1482→            <AccordionItem value="forgot">
+  1483→              <AccordionTrigger className="text-sm">What if I forget my PIN?</AccordionTrigger>
+  1484→              <AccordionContent className="text-sm text-muted-foreground">
+  1485→                Tap &quot;Forgot PIN&quot; to clear the local encrypted state. This only affects this
+  1486→                browser&apos;s App Lock — your server-side inboxes are completely safe. You can set up
+  1487→                App Lock again immediately.
+  1488→              </AccordionContent>
+  1489→            </AccordionItem>
+  1490→            <AccordionItem value="bruteforce">
+  1491→              <AccordionTrigger className="text-sm">What stops brute-force guessing?</AccordionTrigger>
+  1492→              <AccordionContent className="text-sm text-muted-foreground">
+  1493→                After every 5 failed attempts, the PIN pad locks for an escalating cool-down (15s → 30s
+  1494→                → 60s → 5min). The counter persists across browser restarts, so closing the tab does not
+  1495→                reset it.
+  1496→              </AccordionContent>
+  1497→            </AccordionItem>
+  1498→          </Accordion>
+  1499→        </CardContent>
+  1500→      </Card>
+  1501→
+  1502→      {/* Biometric availability indicator */}
+  1503→      <Card>
+  1504→        <CardHeader>
+  1505→          <CardTitle className="flex items-center gap-2 text-base">
+  1506→            <ScanFace className="h-4 w-4 text-emerald-500" /> Device capabilities
+  1507→          </CardTitle>
+  1508→        </CardHeader>
+  1509→        <CardContent>
+  1510→          <div className="grid gap-2 sm:grid-cols-2">
+  1511→            <CapabilityRow
+  1512→              label="Web Crypto (PBKDF2 + AES-GCM)"
+  1513→              ok={typeof crypto !== 'undefined' && !!crypto.subtle}
+  1514→              okLabel="Available"
+  1515→              badLabel="Unavailable (needs HTTPS)"
+  1516→            />
+  1517→            <CapabilityRow
+  1518→              label="Platform authenticator (biometric)"
+  1519→              ok={bioStatus === 'available'}
+  1520→              okLabel="Available"
+  1521→              badLabel={bioStatus === 'unsupported' ? 'Not supported' : 'Not configured'}
+  1522→            />
+  1523→          </div>
+  1524→          <p className="mt-3 text-xs text-muted-foreground">
+  1525→            App Lock works without biometric — PIN-only is always supported.
+  1526→          </p>
+  1527→        </CardContent>
+  1528→      </Card>
+  1529→
+  1530→      {/* Dialogs */}
+  1531→      <SetupDialog
+  1532→        open={setupOpen}
+  1533→        onOpenChange={setSetupOpen}
+  1534→        bioStatus={bioStatus}
+  1535→        onConfirm={handleSetupConfirm}
+  1536→      />
+  1537→      {data && (
+  1538→        <ChangePINDialog
+  1539→          open={changeOpen}
+  1540→          onOpenChange={setChangeOpen}
+  1541→          currentData={data}
+  1542→          onChanged={(next) => setData(next)}
+  1543→        />
+  1544→      )}
+  1545→
+  1546→      {/* LockScreen overlay — rendered locally so the "Lock now" / "Preview"
+  1547→          actions work within this section. For app-wide auto-lock, AppShell
+  1548→          should mount <LockScreen /> globally as well (it's a no-op when
+  1549→          isLocked is false). */}
+  1550→      <LockScreen />
+  1551→    </div>
+  1552→  )
+  1553→}
+  1554→
+  1555→// =============================================================================
+  1556→// Small presentational helpers
+  1557→// =============================================================================
+  1558→
+  1559→function SettingRow({
+  1560→  icon, title, desc, danger, children,
+  1561→}: {
+  1562→  icon: React.ReactNode
+  1563→  title: string
+  1564→  desc: string
+  1565→  danger?: boolean
+  1566→  children: React.ReactNode
+  1567→}) {
+  1568→  return (
+  1569→    <div className="flex items-start gap-3 py-2">
+  1570→      <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${danger ? 'bg-red-500/10' : 'bg-muted'}`}>
+  1571→        {icon}
+  1572→      </div>
+  1573→      <div className="flex-1 min-w-0">
+  1574→        <div className="text-sm font-medium">{title}</div>
+  1575→        <div className="text-xs text-muted-foreground">{desc}</div>
+  1576→      </div>
+  1577→      <div className="shrink-0">{children}</div>
+  1578→    </div>
+  1579→  )
+  1580→}
+  1581→
+  1582→function CapabilityRow({
+  1583→  label, ok, okLabel, badLabel,
+  1584→}: { label: string; ok: boolean; okLabel: string; badLabel: string }) {
+  1585→  return (
+  1586→    <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2.5">
+  1587→      <span className={cn(
+  1588→        'grid h-6 w-6 place-items-center rounded-full',
+  1589→        ok ? 'bg-emerald-500/15 text-emerald-600' : 'bg-muted text-muted-foreground'
+  1590→      )}>
+  1591→        {ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+  1592→      </span>
+  1593→      <div className="min-w-0 flex-1">
+  1594→        <div className="text-xs font-medium truncate">{label}</div>
+  1595→        <div className="text-[11px] text-muted-foreground">{ok ? okLabel : badLabel}</div>
+  1596→      </div>
+  1597→    </div>
+  1598→  )
+  1599→}
+  1600→
+  1601→function formatDuration(seconds: number): string {
+  1602→  if (seconds <= 0) return 'Never'
+  1603→  if (seconds < 60) return `${seconds}s`
+  1604→  if (seconds < 3600) {
+  1605→    const m = Math.floor(seconds / 60)
+  1606→    return m === 1 ? '1 minute' : `${m} minutes`
+  1607→  }
+  1608→  const h = Math.floor(seconds / 3600)
+  1609→  return h === 1 ? '1 hour' : `${h} hours`
+  1610→}
+  1611→

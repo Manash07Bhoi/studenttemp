@@ -44,7 +44,7 @@ import {
   AlertTriangle, CheckCircle2, KeyRound, Eye, Delete,
   X, Loader2, RefreshCw, ScanFace,
 } from 'lucide-react'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, type SectionId } from '@/lib/store'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -469,6 +469,14 @@ export function LockScreen({ onUnlocked }: LockScreenProps) {
   const isLocked = useAppStore((s) => s.isLocked)
   const setLocked = useAppStore((s) => s.setLocked)
   const appLockEnabled = useAppStore((s) => s.appLockEnabled)
+  // L2 (GAP-ANALYSIS-V2.md): pending deep-link navigation.
+  // When a notification (or other deep-link trigger) is tapped while the app
+  // is locked, we stash the intended destination here. On successful unlock
+  // we drain it and route the user there. If the user never unlocks (abandons
+  // the lock screen), the pending target is discarded on next manual unlock.
+  const pendingNavigation = useAppStore((s) => s.pendingNavigation)
+  const setPendingNavigation = useAppStore((s) => s.setPendingNavigation)
+  const setActiveSection = useAppStore((s) => s.setActiveSection)
   const sound = useSound()
 
   const [data, setData] = useState<AppLockData | null>(null)
@@ -493,6 +501,32 @@ export function LockScreen({ onUnlocked }: LockScreenProps) {
     if (isLocked) { setEntered(''); setShake(false); setUnlocked(false) }
   }, [isLocked])
 
+  // L2: deep-link request listener. When a notification (or any other
+  // external trigger) wants to route the user somewhere, it dispatches a
+  // `studenttemp:deep-link-request` CustomEvent with `{ section, params }`.
+  //   • If the app is currently locked → we stash the target as
+  //     pendingNavigation; it'll be drained in `handleUnlocked` after the
+  //     user successfully enters their PIN.
+  //   • If the app is unlocked → we route immediately.
+  useEffect(() => {
+    if (!mounted) return
+    const onDeepLink = (e: Event) => {
+      const detail = (e as CustomEvent<{ section: string; params?: Record<string, string> }>).detail
+      if (!detail?.section) return
+      const section = detail.section as SectionId
+      if (isLocked) {
+        setPendingNavigation({ section, params: detail.params })
+        toast('Locked — sign in to view', {
+          description: 'A link was tapped while the app is locked.',
+        })
+      } else {
+        setActiveSection(section, detail.params ?? {})
+      }
+    }
+    window.addEventListener('studenttemp:deep-link-request', onDeepLink as EventListener)
+    return () => window.removeEventListener('studenttemp:deep-link-request', onDeepLink as EventListener)
+  }, [mounted, isLocked, setPendingNavigation, setActiveSection])
+
   const pinLength: PinLength = data?.pinLength ?? 4
 
   const inCooldown = !!data?.cooldownUntil && data.cooldownUntil > Date.now()
@@ -509,10 +543,20 @@ export function LockScreen({ onUnlocked }: LockScreenProps) {
     // Let the success animation play, then drop the lock for real.
     const t = setTimeout(() => {
       setLocked(false)
+      // L2: drain any pending deep-link navigation FIRST. If there is one, we
+      // route the user to the originally-intended section (e.g., the message
+      // they tapped in a notification) instead of falling through to the
+      // default Home section. We clear the pending target before navigating
+      // so a re-lock during navigation doesn't double-fire it.
+      const pending = pendingNavigation
+      if (pending) {
+        setPendingNavigation(null)
+        setActiveSection(pending.section, pending.params ?? {})
+      }
       onUnlocked?.()
     }, 320)
     return () => clearTimeout(t)
-  }, [data, onUnlocked, setLocked, sound])
+  }, [data, onUnlocked, setLocked, sound, pendingNavigation, setPendingNavigation, setActiveSection])
 
   const submit = useCallback(async (pin: string) => {
     if (!data || verifying || inCooldown) return

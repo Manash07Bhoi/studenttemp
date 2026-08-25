@@ -1,0 +1,1714 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+     4→     4→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+     5→     5→import {
+     6→     6→  motion, AnimatePresence, useMotionValue, useTransform, useReducedMotion,
+     7→     7→  useAnimationControls,
+     8→     8→} from 'framer-motion'
+     9→     9→import {
+    10→    10→  Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
+    11→    11→  Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
+    12→    12→  CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send, MessagesSquare,
+    13→    13→  ChevronsDownUp, CheckSquare, Check, Printer,
+    14→    14→} from 'lucide-react'
+    15→    15→import { api } from '@/lib/api-client'
+    16→    16→import { useAppStore } from '@/lib/store'
+    17→    17→import type { MessageSummary, MessageFull } from '@/lib/types'
+    18→    18→import { toast } from 'sonner'
+    19→    19→import { Button } from '@/components/ui/button'
+    20→    20→import { Input } from '@/components/ui/input'
+    21→    21→import { Badge } from '@/components/ui/badge'
+    22→    22→import { Skeleton } from '@/components/ui/skeleton'
+    23→    23→import { ScrollArea } from '@/components/ui/scroll-area'
+    24→    24→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    25→    25→import {
+    26→    26→  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+    27→    27→} from '@/components/ui/dropdown-menu'
+    28→    28→import {
+    29→    29→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+    30→    30→} from '@/components/ui/dialog'
+    31→    31→import { cn } from '@/lib/utils'
+    32→    32→import { PullToRefresh } from '@/components/pull-to-refresh'
+    33→    33→import { useLongPress } from '@/hooks/use-long-press'
+    34→    34→
+    35→    35→const CATEGORY_META: Record<string, { label: string; color: string }> = {
+    36→    36→  otp: { label: 'OTP', color: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20' },
+    37→    37→  registration: { label: 'Registration', color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
+    38→    38→  newsletter: { label: 'Newsletter', color: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20' },
+    39→    39→  social: { label: 'Social', color: 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20' },
+    40→    40→  shopping: { label: 'Shopping', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
+    41→    41→  security: { label: 'Security', color: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' },
+    42→    42→  general: { label: 'General', color: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20' },
+    43→    43→}
+    44→    44→
+    45→    45→function sanitizeHtml(html: string): string {
+    46→    46→  if (!html) return '<p style="color:#999;font-family:Arial">(empty body)</p>'
+    47→    47→  let out = html
+    48→    48→  out = out.replace(/<script[\s\S]*?<\/script>/gi, '')
+    49→    49→  out = out.replace(/<style[\s\S]*?<\/style>/gi, '')
+    50→    50→  out = out.replace(/\son\w+="[^"]*"/gi, '')
+    51→    51→  out = out.replace(/\son\w+='[^']*'/gi, '')
+    52→    52→  out = out.replace(/javascript:/gi, '')
+    53→    53→  out = out.replace(/(<img[^>]+)src=["']https?:\/\/[^"']*["']/gi, '$1data-src-blocked="true"')
+    54→    54→  out = out.replace(/<link[^>]+href=["']https?:\/\/[^"']*["'][^>]*>/gi, '')
+    55→    55→  out = out.replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    56→    56→  return `<base target="_blank"><style>body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;background:#fff;line-height:1.6;margin:0;padding:12px}a{color:#0ea5e9}img{max-width:100%;height:auto}</style>${out}`
+    57→    57→}
+    58→    58→
+    59→    59→function formatTime(iso: string): string {
+    60→    60→  const d = new Date(iso)
+    61→    61→  const now = new Date()
+    62→    62→  const diff = now.getTime() - d.getTime()
+    63→    63→  if (diff < 60_000) return 'just now'
+    64→    64→  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+    65→    65→  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    66→    66→  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    67→    67→}
+    68→    68→
+    69→    69→export function MessagesSection({ triggerGenerate: _triggerGenerate }: { triggerGenerate: (email: string) => void }) {
+    70→    70→  const activeInboxId = useAppStore((s) => s.activeInboxId)
+    71→    71→  const inboxes = useAppStore((s) => s.inboxes)
+    72→    72→  const messages = useAppStore((s) => s.messages)
+    73→    73→  const setMessages = useAppStore((s) => s.setMessages)
+    74→    74→  const updateMessage = useAppStore((s) => s.updateMessage)
+    75→    75→  const removeMessage = useAppStore((s) => s.removeMessage)
+    76→    76→  const prependMessage = useAppStore((s) => s.prependMessage)
+    77→    77→  const openMessageId = useAppStore((s) => s.openMessageId)
+    78→    78→  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+    79→    79→  const freshMessageId = useAppStore((s) => s.freshMessageId)
+    80→    80→  const selectedMessageId = useAppStore((s) => s.selectedMessageId)
+    81→    81→  const setSelectedMessageId = useAppStore((s) => s.setSelectedMessageId)
+    82→    82→  const queryClient = useQueryClient()
+    83→    83→
+    84→    84→  const activeInbox = inboxes.find((i) => i.id === activeInboxId)
+    85→    85→  const [query, setQuery] = useState('')
+    86→    86→  const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all')
+    87→    87→  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+    88→    88→  const [threadView, setThreadView] = useState(false)
+    89→    89→  const [forwardingMsgId, setForwardingMsgId] = useState<string | null>(null)
+    90→    90→  const [selectMode, setSelectMode] = useState(false)
+    91→    91→  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    92→    92→
+    93→    93→  // Search input ref — focused by the `/` keyboard shortcut.
+    94→    94→  const searchInputRef = useRef<HTMLInputElement>(null)
+    95→    95→
+    96→    96→  // Mirror `openMessageId` into a ref so the undo-aware delete callback can
+    97→    97→  // read the latest value without re-creating (lets us keep its deps list
+    98→    98→  // narrow — only the stable setState functions).
+    99→    99→  const openMessageIdRef = useRef<string | null>(openMessageId)
+   100→   100→  useEffect(() => { openMessageIdRef.current = openMessageId }, [openMessageId])
+   101→   101→
+   102→   102→  const { data: msgData, isFetching, refetch } = useQuery({
+   103→   103→    queryKey: ['messages', activeInboxId],
+   104→   104→    queryFn: () => api.listMessages(activeInboxId!),
+   105→   105→    enabled: !!activeInboxId,
+   106→   106→    refetchInterval: 30_000,
+   107→   107→  })
+   108→   108→
+   109→   109→  useEffect(() => {
+   110→   110→    if (msgData?.messages) {
+   111→   111→      setMessages(msgData.messages)
+   112→   112→    }
+   113→   113→  }, [msgData, setMessages])
+   114→   114→
+   115→   115→  // Keyboard-shortcut bridge: listen for global events dispatched by the
+   116→   116→  // useKeyboardShortcuts hook (and the command palette).
+   117→   117→  //   studenttemp:refresh-messages → re-run the messages query
+   118→   118→  //   studenttemp:focus-search     → focus the search input
+   119→   119→  useEffect(() => {
+   120→   120→    const onRefresh = () => {
+   121→   121→      refetch()
+   122→   122→      toast.success('Messages refreshed', { duration: 1200 })
+   123→   123→    }
+   124→   124→    const onFocusSearch = () => {
+   125→   125→      searchInputRef.current?.focus()
+   126→   126→      searchInputRef.current?.select()
+   127→   127→    }
+   128→   128→    const onForward = (e: Event) => {
+   129→   129→      const detail = (e as CustomEvent<{ id: string }>).detail
+   130→   130→      if (detail?.id) setForwardingMsgId(detail.id)
+   131→   131→    }
+   132→   132→    window.addEventListener('studenttemp:refresh-messages', onRefresh)
+   133→   133→    window.addEventListener('studenttemp:focus-search', onFocusSearch)
+   134→   134→    window.addEventListener('studenttemp:forward-message', onForward)
+   135→   135→    return () => {
+   136→   136→      window.removeEventListener('studenttemp:refresh-messages', onRefresh)
+   137→   137→      window.removeEventListener('studenttemp:focus-search', onFocusSearch)
+   138→   138→      window.removeEventListener('studenttemp:forward-message', onForward)
+   139→   139→    }
+   140→   140→  }, [refetch])
+   141→   141→
+   142→   142→  // Auto-scroll the keyboard-selected message into view (j/k navigation).
+   143→   143→  useEffect(() => {
+   144→   144→    if (!selectedMessageId) return
+   145→   145→    const el = document.querySelector<HTMLElement>(`[data-msg-id="${selectedMessageId}"]`)
+   146→   146→    if (el) {
+   147→   147→      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+   148→   148→    }
+   149→   149→  }, [selectedMessageId])
+   150→   150→
+   151→   151→  const filtered = messages.filter((m) => {
+   152→   152→    if (filter === 'unread' && m.isRead) return false
+   153→   153→    if (filter === 'starred' && !m.isStarred) return false
+   154→   154→    if (categoryFilter !== 'all' && m.category !== categoryFilter) return false
+   155→   155→    if (query) {
+   156→   156→      const q = query.toLowerCase()
+   157→   157→      return (
+   158→   158→        m.subject.toLowerCase().includes(q) ||
+   159→   159→        m.fromName.toLowerCase().includes(q) ||
+   160→   160→        m.fromEmail.toLowerCase().includes(q) ||
+   161→   161→        m.previewText.toLowerCase().includes(q)
+   162→   162→      )
+   163→   163→    }
+   164→   164→    return true
+   165→   165→  })
+   166→   166→
+   167→   167→  // Thread view: group messages by normalized subject (strip Re:/Fwd: prefixes)
+   168→   168→  const threads = useMemo(() => {
+   169→   169→    if (!threadView) return null
+   170→   170→    const normalizeSubject = (s: string) =>
+   171→   171→      s.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase()
+   172→   172→    const groups = new Map<string, typeof filtered>()
+   173→   173→    for (const m of filtered) {
+   174→   174→      const key = normalizeSubject(m.subject)
+   175→   175→      if (!groups.has(key)) groups.set(key, [])
+   176→   176→      groups.get(key)!.push(m)
+   177→   177→    }
+   178→   178→    // Sort each thread by receivedAt ascending (oldest first) and return as array
+   179→   179→    return Array.from(groups.values()).map(thread =>
+   180→   180→      thread.sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime())
+   181→   181→    ).sort((a, b) => {
+   182→   182→      // Sort threads by most recent message
+   183→   183→      const aLast = new Date(a[a.length - 1].receivedAt).getTime()
+   184→   184→      const bLast = new Date(b[b.length - 1].receivedAt).getTime()
+   185→   185→      return bLast - aLast
+   186→   186→    })
+   187→   187→  }, [filtered, threadView])
+   188→   188→
+   189→   189→  const updateMutation = useMutation({
+   190→   190→    mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
+   191→   191→      api.updateMessage(id, data),
+   192→   192→    onSuccess: (_d, vars) => {
+   193→   193→      updateMessage(vars.id, vars.data)
+   194→   194→      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   195→   195→    },
+   196→   196→  })
+   197→   197→
+   198→   198→  // ----------------------------------------------------------------------------
+   199→   199→  // Undo-aware delete: swipe-left commit + reader "Delete" button both route here.
+   200→   200→  //
+   201→   201→  // The flow per MOTION-SYSTEM §5.1:
+   202→   202→  //   1. Optimistically remove the message from the store (zero-latency UI).
+   203→   203→  //   2. Show an Undo snackbar with a shrinking progress bar (5s hold).
+   204→   204→  //   3. If the user taps "Undo" within the window, re-insert the message
+   205→   205→  //      and never call the API.
+   206→   206→  //   4. Otherwise fire the real DELETE request after the snackbar dismisses.
+   207→   207→  //   5. On API failure, re-insert the message and surface an error toast.
+   208→   208→  // ----------------------------------------------------------------------------
+   209→   209→  const pendingDeleteRef = useRef<Map<string, { msg: MessageSummary; timer: ReturnType<typeof setTimeout> }>>(new Map())
+   210→   210→
+   211→   211→  const handleDeleteWithUndo = useCallback((msg: MessageSummary) => {
+   212→   212→    // If the same message is already pending deletion, ignore duplicate calls.
+   213→   213→    const existing = pendingDeleteRef.current.get(msg.id)
+   214→   214→    if (existing) return
+   215→   215→
+   216→   216→    // 1. Optimistic removal (also closes the reader if it was open).
+   217→   217→    removeMessage(msg.id)
+   218→   218→    if (openMessageIdRef.current === msg.id) {
+   219→   219→      setOpenMessageId(null)
+   220→   220→    }
+   221→   221→
+   222→   222→    // 2. Schedule the real API delete for 5s from now.
+   223→   223→    const timer = setTimeout(() => {
+   224→   224→      pendingDeleteRef.current.delete(msg.id)
+   225→   225→      api.deleteMessage(msg.id)
+   226→   226→        .then(() => {
+   227→   227→          queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   228→   228→        })
+   229→   229→        .catch(() => {
+   230→   230→          // Restore the message if the server rejected the delete.
+   231→   231→          prependMessage(msg)
+   232→   232→          toast.error('Failed to delete message', {
+   233→   233→            description: 'Restored to your inbox.',
+   234→   234→          })
+   235→   235→        })
+   236→   236→    }, 5000)
+   237→   237→
+   238→   238→    pendingDeleteRef.current.set(msg.id, { msg, timer })
+   239→   239→
+   240→   240→    // 3. Show the snackbar with an Undo affordance.
+   241→   241→    toast.custom(
+   242→   242→      (t) => (
+   243→   243→        <UndoSnackbar
+   244→   244→          toastId={t}
+   245→   245→          subject={msg.subject}
+   246→   246→          onUndo={() => {
+   247→   247→            const entry = pendingDeleteRef.current.get(msg.id)
+   248→   248→            if (entry) {
+   249→   249→              clearTimeout(entry.timer)
+   250→   250→              pendingDeleteRef.current.delete(msg.id)
+   251→   251→              // Re-insert at the top of the list (it was the most recently
+   252→   252→              // interacted-with message, so visually that's where it belongs).
+   253→   253→              prependMessage(msg)
+   254→   254→            }
+   255→   255→            toast.dismiss(t)
+   256→   256→          }}
+   257→   257→        />
+   258→   258→      ),
+   259→   259→      { duration: 5000, id: `undo-delete-${msg.id}` }
+   260→   260→    )
+   261→   261→  }, [removeMessage, setOpenMessageId, prependMessage, queryClient, activeInboxId])
+   262→   262→
+   263→   263→  const reportMutation = useMutation({
+   264→   264→    mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
+   265→   265→      api.reportMessage(id, reason, category),
+   266→   266→    onSuccess: () => {
+   267→   267→      toast.success('Message reported. Our team will review it.')
+   268→   268→      queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   269→   269→    },
+   270→   270→  })
+   271→   271→
+   272→   272→  // ---- Bulk actions ----
+   273→   273→  const toggleSelect = (id: string) => {
+   274→   274→    setSelectedIds(prev => {
+   275→   275→      const next = new Set(prev)
+   276→   276→      if (next.has(id)) next.delete(id)
+   277→   277→      else next.add(id)
+   278→   278→      return next
+   279→   279→    })
+   280→   280→  }
+   281→   281→  const selectAll = () => setSelectedIds(new Set(filtered.map(m => m.id)))
+   282→   282→  const deselectAll = () => setSelectedIds(new Set())
+   283→   283→  const bulkMarkRead = async () => {
+   284→   284→    for (const id of selectedIds) {
+   285→   285→      await api.updateMessage(id, { isRead: true }).catch(() => {})
+   286→   286→    }
+   287→   287→    queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   288→   288→    toast.success(`Marked ${selectedIds.size} messages as read`)
+   289→   289→    setSelectedIds(new Set())
+   290→   290→    setSelectMode(false)
+   291→   291→  }
+   292→   292→  const bulkStar = async () => {
+   293→   293→    for (const id of selectedIds) {
+   294→   294→      await api.updateMessage(id, { isStarred: true }).catch(() => {})
+   295→   295→    }
+   296→   296→    queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   297→   297→    toast.success(`Starred ${selectedIds.size} messages`)
+   298→   298→    setSelectedIds(new Set())
+   299→   299→    setSelectMode(false)
+   300→   300→  }
+   301→   301→  const bulkDelete = async () => {
+   302→   302→    if (!confirm(`Delete ${selectedIds.size} messages? This cannot be undone.`)) return
+   303→   303→    for (const id of selectedIds) {
+   304→   304→      await api.deleteMessage(id).catch(() => {})
+   305→   305→      removeMessage(id)
+   306→   306→    }
+   307→   307→    queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] })
+   308→   308→    toast.success(`Deleted ${selectedIds.size} messages`)
+   309→   309→    setSelectedIds(new Set())
+   310→   310→    setSelectMode(false)
+   311→   311→  }
+   312→   312→
+   313→   313→  if (!activeInbox) {
+   314→   314→    return (
+   315→   315→      <EmptyState
+   316→   316→        icon={<InboxIcon className="h-8 w-8" />}
+   317→   317→        title="No active inbox"
+   318→   318→        description="Generate an inbox on the Inbox tab to start receiving messages."
+   319→   319→      />
+   320→   320→    )
+   321→   321→  }
+   322→   322→
+   323→   323→  const openMsg = openMessageId ? messages.find((m) => m.id === openMessageId) : null
+   324→   324→
+   325→   325→  return (
+   326→   326→    <div className="space-y-4">
+   327→   327→      {/* Header / toolbar */}
+   328→   328→      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+   329→   329→        <div className="flex-1 min-w-0">
+   330→   330→          <h1 className="text-xl font-bold flex items-center gap-2">
+   331→   331→            <Mail className="h-5 w-5 text-emerald-500" /> Messages
+   332→   332→          </h1>
+   333→   333→          <p className="mt-0.5 text-sm text-muted-foreground font-mono truncate">{activeInbox.email}</p>
+   334→   334→        </div>
+   335→   335→        <div className="flex items-center gap-2">
+   336→   336→          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching} className="gap-1.5">
+   337→   337→            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} /> Refresh
+   338→   338→          </Button>
+   339→   339→          <DropdownMenu>
+   340→   340→            <DropdownMenuTrigger asChild>
+   341→   341→              <Button size="sm" variant="ghost" className="gap-1.5 capitalize">
+   342→   342→                {filter}
+   343→   343→              </Button>
+   344→   344→            </DropdownMenuTrigger>
+   345→   345→            <DropdownMenuContent align="end">
+   346→   346→              <DropdownMenuItem onClick={() => setFilter('all')}>All messages</DropdownMenuItem>
+   347→   347→              <DropdownMenuItem onClick={() => setFilter('unread')}>Unread only</DropdownMenuItem>
+   348→   348→              <DropdownMenuItem onClick={() => setFilter('starred')}>Starred only</DropdownMenuItem>
+   349→   349→            </DropdownMenuContent>
+   350→   350→          </DropdownMenu>
+   351→   351→          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+   352→   352→            <SelectTrigger className="h-8 w-[130px] text-sm capitalize">
+   353→   353→              <SelectValue />
+   354→   354→            </SelectTrigger>
+   355→   355→            <SelectContent>
+   356→   356→              <SelectItem value="all">All types</SelectItem>
+   357→   357→              <SelectItem value="otp">OTP</SelectItem>
+   358→   358→              <SelectItem value="registration">Registration</SelectItem>
+   359→   359→              <SelectItem value="newsletter">Newsletter</SelectItem>
+   360→   360→              <SelectItem value="social">Social</SelectItem>
+   361→   361→              <SelectItem value="shopping">Shopping</SelectItem>
+   362→   362→              <SelectItem value="security">Security</SelectItem>
+   363→   363→              <SelectItem value="general">General</SelectItem>
+   364→   364→            </SelectContent>
+   365→   365→          </Select>
+   366→   366→          <Button
+   367→   367→            size="sm"
+   368→   368→            variant={threadView ? 'default' : 'outline'}
+   369→   369→            onClick={() => setThreadView(!threadView)}
+   370→   370→            className="gap-1.5"
+   371→   371→            title="Toggle thread view"
+   372→   372→          >
+   373→   373→            <MessagesSquare className="h-3.5 w-3.5" />
+   374→   374→            <span className="hidden sm:inline">Threads</span>
+   375→   375→          </Button>
+   376→   376→          {threadView && threads && threads.length > 1 && (
+   377→   377→            <Button
+   378→   378→              size="sm"
+   379→   379→              variant="ghost"
+   380→   380→              onClick={() => {
+   381→   381→                window.dispatchEvent(new CustomEvent('studenttemp:thread-toggle-all'))
+   382→   382→              }}
+   383→   383→              className="gap-1.5 text-xs"
+   384→   384→              title="Expand/collapse all threads"
+   385→   385→            >
+   386→   386→              <ChevronsDownUp className="h-3.5 w-3.5" />
+   387→   387→              <span className="hidden lg:inline">All</span>
+   388→   388→            </Button>
+   389→   389→          )}
+   390→   390→        </div>
+   391→   391→      </div>
+   392→   392→
+   393→   393→      {/* Search */}
+   394→   394→      <div className="relative">
+   395→   395→        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   396→   396→        <Input
+   397→   397→          ref={searchInputRef}
+   398→   398→          value={query}
+   399→   399→          onChange={(e) => setQuery(e.target.value)}
+   400→   400→          placeholder="Search subject, sender, or content…  (press / to focus)"
+   401→   401→          className="pl-9"
+   402→   402→        />
+   403→   403→        {query ? (
+   404→   404→          <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear search">
+   405→   405→            <X className="h-4 w-4" />
+   406→   406→          </button>
+   407→   407→        ) : (
+   408→   408→          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex h-5 items-center rounded border border-border/70 bg-muted px-1.5 font-mono text-[10px] tracking-wider text-muted-foreground">
+   409→   409→            /
+   410→   410→          </kbd>
+   411→   411→        )}
+   412→   412→      </div>
+   413→   413→
+   414→   414→      {/* Message list + reader (split view on desktop, stacked on mobile) */}
+   415→   415→      <div className="grid lg:grid-cols-[1fr_1.4fr] gap-4">
+   416→   416→        {/* List */}
+   417→   417→        <div className="rounded-xl border border-border/60 bg-card overflow-hidden order-1">
+   418→   418→          <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
+   419→   419→            {selectMode ? (
+   420→   420→              <div className="flex items-center gap-2">
+   421→   421→                <span className="text-xs font-semibold text-primary">
+   422→   422→                  {selectedIds.size} selected
+   423→   423→                </span>
+   424→   424→                <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={selectAll}>Select all</Button>
+   425→   425→                <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={deselectAll}>Clear</Button>
+   426→   426→              </div>
+   427→   427→            ) : (
+   428→   428→              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+   429→   429→                {filtered.length} {filtered.length === 1 ? 'message' : 'messages'}
+   430→   430→              </span>
+   431→   431→            )}
+   432→   432→            <div className="flex items-center gap-1">
+   433→   433→              {!selectMode ? (
+   434→   434→                <>
+   435→   435→                  {messages.filter((m) => !m.isRead).length > 0 && (
+   436→   436→                    <Button
+   437→   437→                      size="sm"
+   438→   438→                      variant="ghost"
+   439→   439→                      className="h-7 text-xs gap-1"
+   440→   440→                      onClick={() => {
+   441→   441→                        messages.filter((m) => !m.isRead).forEach((m) =>
+   442→   442→                          updateMutation.mutate({ id: m.id, data: { isRead: true } })
+   443→   443→                        )
+   444→   444→                      }}
+   445→   445→                    >
+   446→   446→                      <CheckCheck className="h-3 w-3" /> Mark all read
+   447→   447→                    </Button>
+   448→   448→                  )}
+   449→   449→                  <Button
+   450→   450→                    size="sm"
+   451→   451→                    variant="ghost"
+   452→   452→                    className="h-7 text-xs gap-1"
+   453→   453→                    onClick={() => { setSelectMode(true); setSelectedIds(new Set()) }}
+   454→   454→                    title="Select messages for bulk actions"
+   455→   455→                  >
+   456→   456→                    <CheckSquare className="h-3 w-3" /> Select
+   457→   457→                  </Button>
+   458→   458→                </>
+   459→   459→              ) : (
+   460→   460→                <Button
+   461→   461→                  size="sm"
+   462→   462→                  variant="ghost"
+   463→   463→                  className="h-7 text-xs"
+   464→   464→                  onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }}
+   465→   465→                >
+   466→   466→                  <X className="h-3 w-3" /> Exit
+   467→   467→                </Button>
+   468→   468→              )}
+   469→   469→            </div>
+   470→   470→          </div>
+   471→   471→          {/* Bulk action bar */}
+   472→   472→          <AnimatePresence>
+   473→   473→            {selectMode && selectedIds.size > 0 && (
+   474→   474→              <motion.div
+   475→   475→                initial={{ height: 0, opacity: 0 }}
+   476→   476→                animate={{ height: 'auto', opacity: 1 }}
+   477→   477→                exit={{ height: 0, opacity: 0 }}
+   478→   478→                className="overflow-hidden border-b border-border/60 bg-emerald-500/5"
+   479→   479→              >
+   480→   480→                <div className="flex items-center gap-2 px-4 py-2">
+   481→   481→                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={bulkMarkRead}>
+   482→   482→                    <MailOpen className="h-3 w-3" /> Mark read
+   483→   483→                  </Button>
+   484→   484→                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={bulkStar}>
+   485→   485→                    <Star className="h-3 w-3" /> Star
+   486→   486→                  </Button>
+   487→   487→                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-500 hover:bg-red-500/10" onClick={bulkDelete}>
+   488→   488→                    <Trash2 className="h-3 w-3" /> Delete
+   489→   489→                  </Button>
+   490→   490→                </div>
+   491→   491→              </motion.div>
+   492→   492→            )}
+   493→   493→          </AnimatePresence>
+   494→   494→          <ScrollArea className="h-[55vh] lg:h-[65vh] scrollbar-thin">
+   495→   495→            <PullToRefresh onRefresh={async () => { await refetch() }}>
+   496→   496→            {isFetching && messages.length === 0 ? (
+   497→   497→              <div className="p-3 space-y-2 animate-stagger">
+   498→   498→                {[0, 1, 2, 3].map((i) => (
+   499→   499→                  <div key={i} className="rounded-lg p-3 border border-border/40">
+   500→   500→                    <div className="flex gap-3">
+   501→   501→                      <div className="h-10 w-10 rounded-full bg-muted shimmer" />
+   502→   502→                      <div className="flex-1 space-y-2">
+   503→   503→                        <div className="h-3 w-2/3 rounded bg-muted shimmer" />
+   504→   504→                        <div className="h-3 w-1/2 rounded bg-muted shimmer" />
+   505→   505→                        <div className="h-2 w-full rounded bg-muted shimmer" />
+   506→   506→                      </div>
+   507→   507→                    </div>
+   508→   508→                  </div>
+   509→   509→                ))}
+   510→   510→              </div>
+   511→   511→            ) : filtered.length === 0 ? (
+   512→   512→              <EmptyState
+   513→   513→                icon={<Mail className="h-7 w-7" />}
+   514→   514→                title={query || filter !== 'all' ? 'No matching messages' : 'No messages yet'}
+   515→   515→                description={
+   516→   516→                  query || filter !== 'all'
+   517→   517→                    ? 'Try a different search or filter.'
+   518→   518→                    : 'New messages will appear here in real time as they arrive.'
+   519→   519→                }
+   520→   520→                compact
+   521→   521→              />
+   522→   522→            ) : threadView && threads ? (
+   523→   523→              <div className="divide-y divide-border/40">
+   524→   524→                {threads.map((thread, ti) => (
+   525→   525→                  <ThreadGroup key={ti} thread={thread} />
+   526→   526→                ))}
+   527→   527→              </div>
+   528→   528→            ) : (
+   529→   529→              <ul className="divide-y divide-border/40">
+   530→   530→                <AnimatePresence initial={false}>
+   531→   531→                  {filtered.map((msg) => (
+   532→   532→                    <MessageListItem
+   533→   533→                      key={msg.id}
+   534→   534→                      msg={msg}
+   535→   535→                      active={openMessageId === msg.id}
+   536→   536→                      selected={selectedMessageId === msg.id && openMessageId !== msg.id}
+   537→   537→                      fresh={freshMessageId === msg.id}
+   538→   538→                      selectMode={selectMode}
+   539→   539→                      isSelected={selectedIds.has(msg.id)}
+   540→   540→                      onToggleSelect={() => toggleSelect(msg.id)}
+   541→   541→                      onOpen={() => {
+   542→   542→                        if (selectMode) { toggleSelect(msg.id); return }
+   543→   543→                        setOpenMessageId(msg.id)
+   544→   544→                        setSelectedMessageId(msg.id)
+   545→   545→                      }}
+   546→   546→                      onToggleRead={() => updateMutation.mutate({ id: msg.id, data: { isRead: !msg.isRead } })}
+   547→   547→                      onToggleStar={() => updateMutation.mutate({ id: msg.id, data: { isStarred: !msg.isStarred } })}
+   548→   548→                      onDelete={() => handleDeleteWithUndo(msg)}
+   549→   549→                      onReport={(reason, category) => reportMutation.mutate({ id: msg.id, reason, category })}
+   550→   550→                      onForward={() => setForwardingMsgId(msg.id)}
+   551→   551→                    />
+   552→   552→                  ))}
+   553→   553→                </AnimatePresence>
+   554→   554→              </ul>
+   555→   555→            )}
+   556→   556→            </PullToRefresh>
+   557→   557→          </ScrollArea>
+   558→   558→        </div>
+   559→   559→
+   560→   560→        {/* Reader */}
+   561→   561→        <div className="rounded-xl border border-border/60 bg-card overflow-hidden min-h-[55vh] lg:min-h-[65vh] order-2">
+   562→   562→          <AnimatePresence mode="wait">
+   563→   563→            {openMsg ? (
+   564→   564→              <MessageReader
+   565→   565→                key={openMsg.id}
+   566→   566→                messageSummary={openMsg}
+   567→   567→                onBack={() => setOpenMessageId(null)}
+   568→   568→                onDelete={() => handleDeleteWithUndo(openMsg)}
+   569→   569→                onToggleStar={() => updateMutation.mutate({ id: openMsg.id, data: { isStarred: !openMsg.isStarred } })}
+   570→   570→                onReport={(reason, category) => reportMutation.mutate({ id: openMsg.id, reason, category })}
+   571→   571→              />
+   572→   572→            ) : (
+   573→   573→              <motion.div
+   574→   574→                key="empty"
+   575→   575→                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+   576→   576→                className="grid place-items-center h-full min-h-[55vh] p-8"
+   577→   577→              >
+   578→   578→                <div className="text-center max-w-sm">
+   579→   579→                  <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+   580→   580→                    <MailOpen className="h-8 w-8" />
+   581→   581→                  </div>
+   582→   582→                  <h3 className="font-semibold">Select a message</h3>
+   583→   583→                  <p className="mt-1 text-sm text-muted-foreground">
+   584→   584→                    Tap any message on the left to read it here. Messages render with external resources blocked for your safety.
+   585→   585→                  </p>
+   586→   586→                </div>
+   587→   587→              </motion.div>
+   588→   588→            )}
+   589→   589→          </AnimatePresence>
+   590→   590→        </div>
+   591→   591→      </div>
+   592→   592→
+   593→   593→      {/* Forward dialog */}
+   594→   594→      <ForwardDialog
+   595→   595→        messageId={forwardingMsgId}
+   596→   596→        onOpenChange={(v) => { if (!v) setForwardingMsgId(null) }}
+   597→   597→      />
+   598→   598→    </div>
+   599→   599→  )
+   600→   600→}
+   601→   601→
+   602→   602→// ---------------- Message List Item ----------------
+   603→   603→// Swipe gestures per MOTION-SYSTEM.md §5.1:
+   604→   604→//   • drag="x" with elastic constraints, card follows finger 1:1.
+   605→   605→//   • swipe-left past 80 px (or 500 px/s velocity) → commit-delete:
+   606→   606→//     card slides fully off-screen (200ms ease-in), then onDelete() fires
+   607→   607→//     (which surfaces the Undo snackbar + collapses the row).
+   608→   608→//   • swipe-right past 80 px (or 500 px/s velocity) → toggle read/unread,
+   609→   609→//     card springs back to rest (no removal).
+   610→   610→//   • background revealed underneath: red-500 with trash icon for delete,
+   611→   611→//     emerald-500 with mail/mail-open icon swap for read/unread.
+   612→   612→//   • icon scales up as |drag| grows.
+   613→   613→//   • prefers-reduced-motion → drag disabled entirely; hover buttons still work.
+   614→   614→//   • tap (no drag) → onOpen(). drag → suppress click.
+   615→   615→function MessageListItem({
+   616→   616→  msg, active, selected, fresh, selectMode, isSelected, onToggleSelect, onOpen, onToggleRead, onToggleStar, onDelete, onReport, onForward,
+   617→   617→}: {
+   618→   618→  msg: MessageSummary
+   619→   619→  active: boolean
+   620→   620→  selected: boolean
+   621→   621→  fresh: boolean
+   622→   622→  selectMode?: boolean
+   623→   623→  isSelected?: boolean
+   624→   624→  onToggleSelect?: () => void
+   625→   625→  onOpen: () => void
+   626→   626→  onToggleRead: () => void
+   627→   627→  onToggleStar: () => void
+   628→   628→  onDelete: () => void
+   629→   629→  onReport: (reason: string, category: string) => void
+   630→   630→  onForward?: () => void
+   631→   631→}) {
+   632→   632→  const cat = CATEGORY_META[msg.category] || CATEGORY_META.general
+   633→   633→  const hasAuthIssue = msg.spf !== 'pass' || msg.dkim !== 'pass' || msg.dmarc !== 'pass'
+   634→   634→
+   635→   635→  const reduceMotion = useReducedMotion()
+   636→   636→  const dragX = useMotionValue(0)
+   637→   637→  const controls = useAnimationControls()
+   638→   638→
+   639→   639→  // Long-press context menu state
+   640→   640→  const [showContextMenu, setShowContextMenu] = useState(false)
+   641→   641→  const longPress = useLongPress({ onLongPress: () => setShowContextMenu(true) })
+   642→   642→
+   643→   643→  // Track whether a real drag happened so we can suppress the click that
+   644→   644→  // follows. Framer Motion fires `onClick` even after a drag ends if the
+   645→   645→  // pointer-up happens over the same element; we want a tap (no movement) to
+   646→   646→  // open the message, and a drag to NOT open it.
+   647→   647→  const draggedRef = useRef(false)
+   648→   648→  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+   649→   649→
+   650→   650→  // ---- drag x → background opacity + icon scale mappings ----
+   651→   651→  // Delete background: 0 at rest → 1 when dragged to -120px.
+   652→   652→  const deleteBgOpacity = useTransform(dragX, [-120, -40], [1, 0], { clamp: true })
+   653→   653→  // Read/unread background: 0 at rest → 1 when dragged to +120px.
+   654→   654→  const readBgOpacity = useTransform(dragX, [40, 120], [0, 1], { clamp: true })
+   655→   655→  // Trash icon scales from 0.8 → 1.4 as the user swipes left past the threshold.
+   656→   656→  const deleteIconScale = useTransform(dragX, [-120, -40], [1.4, 0.8], { clamp: true })
+   657→   657→  // Mail icon scales from 0.8 → 1.4 as the user swipes right past the threshold.
+   658→   658→  const readIconScale = useTransform(dragX, [40, 120], [0.8, 1.4], { clamp: true })
+   659→   659→
+   660→   660→  const COMMIT_THRESHOLD = 80 // px
+   661→   661→  const VELOCITY_THRESHOLD = 500 // px/s
+   662→   662→
+   663→   663→  const handleDragEnd = async (_e: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
+   664→   664→    // Clear the drag flag (the click that fires right after will check it).
+   665→   665→    // Defer clearing by a tick so the click event sees `draggedRef = true`.
+   666→   666→    setTimeout(() => { draggedRef.current = false }, 0)
+   667→   667→
+   668→   668→    const offset = info.offset.x
+   669→   669→    const velocity = info.velocity.x
+   670→   670→
+   671→   671→    if (offset < -COMMIT_THRESHOLD || velocity < -VELOCITY_THRESHOLD) {
+   672→   672→      // Swipe left → delete.
+   673→   673→      // Slide the card fully off-screen (200ms ease-in per spec), then call
+   674→   674→      // onDelete() which optimistically removes the message from the store
+   675→   675→      // and triggers the row's exit-animation (height → 0).
+   676→   676→      await controls.start({
+   677→   677→        x: '-120%',
+   678→   678→        opacity: 0,
+   679→   679→        transition: { duration: 0.2, ease: 'easeIn' },
+   680→   680→      })
+   681→   681→      onDelete()
+   682→   682→      // The parent <motion.li> unmounts (because removeMessage removes the
+   683→   683→      // message from the store), so we don't need to reset dragX/controls here.
+   684→   684→    } else if (offset > COMMIT_THRESHOLD || velocity > VELOCITY_THRESHOLD) {
+   685→   685→      // Swipe right → toggle read/unread, then spring back to rest.
+   686→   686→      onToggleRead()
+   687→   687→      await controls.start({
+   688→   688→        x: 0,
+   689→   689→        transition: { type: 'spring', stiffness: 500, damping: 30 },
+   690→   690→      })
+   691→   691→    } else {
+   692→   692→      // Spring back to rest (no commit).
+   693→   693→      await controls.start({
+   694→   694→        x: 0,
+   695→   695→        transition: { type: 'spring', stiffness: 500, damping: 30 },
+   696→   696→      })
+   697→   697→    }
+   698→   698→  }
+   699→   699→
+   700→   700→  const handleClick = () => {
+   701→   701→    if (draggedRef.current) return
+   702→   702→    // Suppress click after a long-press (the context menu opened)
+   703→   703→    if (longPress.didLongPress.current) {
+   704→   704→      return
+   705→   705→    }
+   706→   706→    onOpen()
+   707→   707→  }
+   708→   708→
+   709→   709→  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+   710→   710→    pointerDownRef.current = { x: e.clientX, y: e.clientY }
+   711→   711→  }
+   712→   712→  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+   713→   713→    // If the pointer moved less than ~5 px since pointer-down, this was a tap,
+   714→   714→    // not a drag. Framer Motion will fire onClick naturally; we just need to
+   715→   715→    // make sure `draggedRef` reflects the truth.
+   716→   716→    const down = pointerDownRef.current
+   717→   717→    pointerDownRef.current = null
+   718→   718→    if (down) {
+   719→   719→      const dx = Math.abs(e.clientX - down.x)
+   720→   720→      const dy = Math.abs(e.clientY - down.y)
+   721→   721→      if (dx < 5 && dy < 5) {
+   722→   722→        draggedRef.current = false
+   723→   723→      }
+   724→   724→    }
+   725→   725→  }
+   726→   726→
+   727→   727→  return (
+   728→   728→    <motion.li
+   729→   729→      layout
+   730→   730→      data-msg-id={msg.id}
+   731→   731→      initial={fresh ? { opacity: 0, y: -16 } : false}
+   732→   732→      animate={{ opacity: 1, y: 0 }}
+   733→   733→      exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: 'hidden' }}
+   734→   734→      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+   735→   735→      className="relative overflow-hidden"
+   736→   736→    >
+   737→   737→      {/* ---- Swipe action backgrounds (revealed underneath the card) ---- */}
+   738→   738→      {/* Delete (left swipe) */}
+   739→   739→      <div
+   740→   740→        className="absolute inset-0 bg-red-500 flex items-center justify-start pl-6 pointer-events-none"
+   741→   741→        aria-hidden="true"
+   742→   742→      >
+   743→   743→        <motion.div
+   744→   744→          style={{ opacity: deleteBgOpacity, scale: deleteIconScale }}
+   745→   745→          className="flex flex-col items-center gap-1 text-white"
+   746→   746→        >
+   747→   747→          <Trash2 className="h-5 w-5" />
+   748→   748→          <span className="text-[10px] font-semibold uppercase tracking-wide">Delete</span>
+   749→   749→        </motion.div>
+   750→   750→      </div>
+   751→   751→      {/* Read/unread (right swipe) */}
+   752→   752→      <div
+   753→   753→        className="absolute inset-0 bg-emerald-500 flex items-center justify-end pr-6 pointer-events-none"
+   754→   754→        aria-hidden="true"
+   755→   755→      >
+   756→   756→        <motion.div
+   757→   757→          style={{ opacity: readBgOpacity, scale: readIconScale }}
+   758→   758→          className="flex flex-col items-center gap-1 text-white"
+   759→   759→        >
+   760→   760→          {msg.isRead ? <Mail className="h-5 w-5" /> : <MailOpen className="h-5 w-5" />}
+   761→   761→          <span className="text-[10px] font-semibold uppercase tracking-wide">
+   762→   762→            {msg.isRead ? 'Unread' : 'Read'}
+   763→   763→          </span>
+   764→   764→        </motion.div>
+   765→   765→      </div>
+   766→   766→
+   767→   767→      {/* ---- Draggable card ---- */}
+   768→   768→      <motion.div
+   769→   769→        drag={reduceMotion ? false : 'x'}
+   770→   770→        dragConstraints={{ left: 0, right: 0 }}
+   771→   771→        dragElastic={0.5}
+   772→   772→        dragMomentum={false}
+   773→   773→        style={{ x: dragX }}
+   774→   774→        animate={controls}
+   775→   775→        onDragStart={() => { draggedRef.current = true }}
+   776→   776→        onDragEnd={handleDragEnd}
+   777→   777→        whileDrag={{ cursor: 'grabbing' }}
+   778→   778→        className={cn(
+   779→   779→          'relative group cursor-pointer bg-card transition-colors touch-pan-y',
+   780→   780→          active
+   781→   781→            ? 'bg-emerald-500/15 ring-1 ring-inset ring-emerald-500/50 shadow-sm'
+   782→   782→            : selected
+   783→   783→              ? 'bg-emerald-500/8 ring-1 ring-inset ring-emerald-500/30'
+   784→   784→              : 'hover:bg-accent/40',
+   785→   785→          isSelected && 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/40',
+   786→   786→          fresh && 'bg-emerald-500/5'
+   787→   787→        )}
+   788→   788→      >
+   789→   789→        <button
+   790→   790→          onClick={handleClick}
+   791→   791→          onPointerDown={(e) => { handlePointerDown(e); longPress.bind.onPointerDown(e) }}
+   792→   792→          onPointerMove={longPress.bind.onPointerMove}
+   793→   793→          onPointerUp={(e) => { handlePointerUp(e); longPress.bind.onPointerUp(e) }}
+   794→   794→          onPointerLeave={longPress.bind.onPointerLeave}
+   795→   795→          onPointerCancel={longPress.bind.onPointerCancel}
+   796→   796→          style={longPress.isLongPressing ? { transform: 'scale(0.98)', transition: 'transform 0.15s ease' } : undefined}
+   797→   797→          className="w-full text-left p-3 flex gap-3 min-w-0"
+   798→   798→          aria-label={`Open message: ${msg.subject} from ${msg.fromName}`}
+   799→   799→          aria-haspopup={showContextMenu ? 'menu' : undefined}
+   800→   800→          aria-expanded={showContextMenu}
+   801→   801→        >
+   802→   802→          {selectMode && (
+   803→   803→            <div
+   804→   804→              className={cn(
+   805→   805→                'grid h-5 w-5 shrink-0 place-items-center rounded border-2 transition-colors mt-2.5',
+   806→   806→                isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-muted-foreground/30'
+   807→   807→              )}
+   808→   808→              onClick={(e) => { e.stopPropagation(); onToggleSelect?.() }}
+   809→   809→            >
+   810→   810→              {isSelected && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+   811→   811→            </div>
+   812→   812→          )}
+   813→   813→          <div className="relative shrink-0">
+   814→   814→            <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+   815→   815→              {msg.fromName[0]?.toUpperCase() || '?'}
+   816→   816→            </div>
+   817→   817→            {!msg.isRead && (
+   818→   818→              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+   819→   819→            )}
+   820→   820→          </div>
+   821→   821→          <div className="flex-1 min-w-0 overflow-hidden">
+   822→   822→            <div className="flex items-center justify-between gap-2">
+   823→   823→              <span className={cn('text-sm truncate min-w-0', msg.isRead ? 'font-medium text-foreground' : 'font-bold text-foreground')}>
+   824→   824→                {msg.fromName}
+   825→   825→              </span>
+   826→   826→              <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+   827→   827→                {formatTime(msg.receivedAt)}
+   828→   828→              </span>
+   829→   829→            </div>
+   830→   830→            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+   831→   831→              <span className={cn('text-sm truncate flex-1 min-w-0', msg.isRead ? 'text-foreground/70' : 'text-foreground font-semibold')}>
+   832→   832→                {msg.subject}
+   833→   833→              </span>
+   834→   834→              {msg.isStarred && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" />}
+   835→   835→              {msg.hasAttachment && <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+   836→   836→              {hasAuthIssue && <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+   837→   837→            </div>
+   838→   838→            <p className="mt-0.5 text-xs text-muted-foreground truncate min-w-0">{msg.previewText}</p>
+   839→   839→            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+   840→   840→              <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-4', cat.color)}>{cat.label}</Badge>
+   841→   841→              {msg.scanStatus === 'quarantined' && (
+   842→   842→                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-red-500/10 text-red-600 border-red-500/20">
+   843→   843→                  <Ban className="h-2.5 w-2.5 mr-0.5" /> Quarantined
+   844→   844→                </Badge>
+   845→   845→              )}
+   846→   846→              {msg.externalResourcesBlocked > 0 && (
+   847→   847→                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">
+   848→   848→                  <Ban className="h-2.5 w-2.5 mr-0.5" /> {msg.externalResourcesBlocked} blocked
+   849→   849→                </Badge>
+   850→   850→              )}
+   851→   851→            </div>
+   852→   852→          </div>
+   853→   853→        </button>
+   854→   854→
+   855→   855→        {/* Hover quick actions — preserved unchanged */}
+   856→   856→        <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-0.5 bg-background/90 backdrop-blur rounded-lg border border-border/60 p-0.5 shadow-sm">
+   857→   857→          <button onClick={(e) => { e.stopPropagation(); onToggleStar() }} title={msg.isStarred ? 'Unstar' : 'Star'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+   858→   858→            <Star className={cn('h-3.5 w-3.5', msg.isStarred && 'text-amber-500 fill-amber-500')} />
+   859→   859→          </button>
+   860→   860→          <button onClick={(e) => { e.stopPropagation(); onToggleRead() }} title={msg.isRead ? 'Mark unread' : 'Mark read'} className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+   861→   861→            {msg.isRead ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+   862→   862→          </button>
+   863→   863→          <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete" className="grid h-7 w-7 place-items-center rounded hover:bg-red-500/10 text-red-500">
+   864→   864→            <Trash2 className="h-3.5 w-3.5" />
+   865→   865→          </button>
+   866→   866→          <DropdownMenu>
+   867→   867→            <DropdownMenuTrigger asChild>
+   868→   868→              <button onClick={(e) => e.stopPropagation()} title="More" className="grid h-7 w-7 place-items-center rounded hover:bg-accent">
+   869→   869→                <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+   870→   870→              </button>
+   871→   871→            </DropdownMenuTrigger>
+   872→   872→            <DropdownMenuContent align="end">
+   873→   873→              <DropdownMenuItem onClick={() => onReport('Spam or promotional abuse', 'spam')} className="gap-2 text-red-600">
+   874→   874→                <Flag className="h-3.5 w-3.5" /> Report as spam
+   875→   875→              </DropdownMenuItem>
+   876→   876→              <DropdownMenuItem onClick={() => onReport('Phishing or fraud attempt', 'phishing')} className="gap-2 text-red-600">
+   877→   877→                <Flag className="h-3.5 w-3.5" /> Report phishing
+   878→   878→              </DropdownMenuItem>
+   879→   879→              <DropdownMenuSeparator />
+   880→   880→              <DropdownMenuItem onClick={() => onReport('Other', 'other')} className="gap-2 text-red-600">
+   881→   881→                <Flag className="h-3.5 w-3.5" /> Report (other)
+   882→   882→              </DropdownMenuItem>
+   883→   883→            </DropdownMenuContent>
+   884→   884→          </DropdownMenu>
+   885→   885→        </div>
+   886→   886→
+   887→   887→        {/* Long-press context menu (MOTION-SYSTEM.md §17) */}
+   888→   888→        <AnimatePresence>
+   889→   889→          {showContextMenu && (
+   890→   890→            <>
+   891→   891→              <motion.div
+   892→   892→                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+   893→   893→                onClick={() => setShowContextMenu(false)}
+   894→   894→                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+   895→   895→              />
+   896→   896→              <motion.div
+   897→   897→                initial={{ opacity: 0, scale: 0.9, y: -8 }}
+   898→   898→                animate={{ opacity: 1, scale: 1, y: 0 }}
+   899→   899→                exit={{ opacity: 0, scale: 0.9, y: -8 }}
+   900→   900→                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+   901→   901→                className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[calc(100%-2rem)] max-w-xs rounded-2xl border border-border/60 bg-card p-1.5 shadow-2xl"
+   902→   902→                role="menu"
+   903→   903→                aria-label="Message actions"
+   904→   904→              >
+   905→   905→                <div className="px-3 py-2 border-b border-border/40 mb-1">
+   906→   906→                  <p className="text-xs font-medium truncate">{msg.subject}</p>
+   907→   907→                  <p className="text-[11px] text-muted-foreground truncate">{msg.fromName}</p>
+   908→   908→                </div>
+   909→   909→                <button
+   910→   910→                  onClick={() => { onToggleRead(); setShowContextMenu(false) }}
+   911→   911→                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+   912→   912→                  role="menuitem"
+   913→   913→                >
+   914→   914→                  {msg.isRead ? <Mail className="h-4 w-4 text-muted-foreground" /> : <MailOpen className="h-4 w-4 text-emerald-500" />}
+   915→   915→                  {msg.isRead ? 'Mark as unread' : 'Mark as read'}
+   916→   916→                </button>
+   917→   917→                <button
+   918→   918→                  onClick={() => { onToggleStar(); setShowContextMenu(false) }}
+   919→   919→                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+   920→   920→                  role="menuitem"
+   921→   921→                >
+   922→   922→                  <Star className={cn('h-4 w-4', msg.isStarred ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground')} />
+   923→   923→                  {msg.isStarred ? 'Unstar' : 'Star'}
+   924→   924→                </button>
+   925→   925→                {onForward && (
+   926→   926→                  <button
+   927→   927→                    onClick={() => { onForward(); setShowContextMenu(false) }}
+   928→   928→                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+   929→   929→                    role="menuitem"
+   930→   930→                  >
+   931→   931→                    <Send className="h-4 w-4 text-emerald-500" />
+   932→   932→                    Forward
+   933→   933→                  </button>
+   934→   934→                )}
+   935→   935→                <button
+   936→   936→                  onClick={() => { window.open(`/api/messages/${msg.id}/export`, '_blank'); setShowContextMenu(false) }}
+   937→   937→                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent text-sm text-left"
+   938→   938→                  role="menuitem"
+   939→   939→                >
+   940→   940→                  <Download className="h-4 w-4 text-muted-foreground" />
+   941→   941→                  Export as .eml
+   942→   942→                </button>
+   943→   943→                <div className="h-px bg-border/40 my-1" />
+   944→   944→                <button
+   945→   945→                  onClick={() => { onDelete(); setShowContextMenu(false) }}
+   946→   946→                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-red-500/10 text-sm text-red-600 text-left"
+   947→   947→                  role="menuitem"
+   948→   948→                >
+   949→   949→                  <Trash2 className="h-4 w-4" />
+   950→   950→                  Delete
+   951→   951→                </button>
+   952→   952→                <button
+   953→   953→                  onClick={() => { onReport('Reported via context menu', 'other'); setShowContextMenu(false) }}
+   954→   954→                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-red-500/10 text-sm text-red-600 text-left"
+   955→   955→                  role="menuitem"
+   956→   956→                >
+   957→   957→                  <Flag className="h-4 w-4" />
+   958→   958→                  Report
+   959→   959→                </button>
+   960→   960→              </motion.div>
+   961→   961→            </>
+   962→   962→          )}
+   963→   963→        </AnimatePresence>
+   964→   964→      </motion.div>
+   965→   965→    </motion.li>
+   966→   966→  )
+   967→   967→}
+   968→   968→
+   969→   969→// ---------------- Undo Snackbar (custom sonner toast) ----------------
+   970→   970→// Per MOTION-SYSTEM.md §5.1: slides up from bottom, holds 5s with a shrinking
+   971→   971→// progress bar, tapping "Undo" re-inserts the deleted message.
+   972→   972→function UndoSnackbar({
+   973→   973→  toastId,
+   974→   974→  subject,
+   975→   975→  onUndo,
+   976→   976→}: {
+   977→   977→  toastId: string | number
+   978→   978→  subject: string
+   979→   979→  onUndo: () => void
+   980→   980→}) {
+   981→   981→  const [progress, setProgress] = useState(100)
+   982→   982→  useEffect(() => {
+   983→   983→    const DURATION = 5000
+   984→   984→    const start = performance.now()
+   985→   985→    let raf = 0
+   986→   986→    const tick = (now: number) => {
+   987→   987→      const elapsed = now - start
+   988→   988→      const remaining = Math.max(0, DURATION - elapsed)
+   989→   989→      setProgress((remaining / DURATION) * 100)
+   990→   990→      if (remaining > 0) raf = requestAnimationFrame(tick)
+   991→   991→    }
+   992→   992→    raf = requestAnimationFrame(tick)
+   993→   993→    return () => cancelAnimationFrame(raf)
+   994→   994→  }, [])
+   995→   995→
+   996→   996→  return (
+   997→   997→    <motion.div
+   998→   998→      initial={{ opacity: 0, y: 60, scale: 0.96 }}
+   999→   999→      animate={{ opacity: 1, y: 0, scale: 1 }}
+  1000→  1000→      exit={{ opacity: 0, y: 20, scale: 0.96 }}
+  1001→  1001→      transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.8 }}
+  1002→  1002→      className="relative flex items-center gap-3 rounded-xl border border-border/60 bg-zinc-900 text-white px-4 py-3 shadow-xl min-w-[300px] max-w-[420px] overflow-hidden"
+  1003→  1003→      role="alert"
+  1004→  1004→      aria-live="assertive"
+  1005→  1005→    >
+  1006→  1006→      <span className="grid h-8 w-8 place-items-center rounded-full bg-red-500/20 text-red-300 shrink-0">
+  1007→  1007→        <Trash2 className="h-4 w-4" />
+  1008→  1008→      </span>
+  1009→  1009→      <div className="flex-1 min-w-0">
+  1010→  1010→        <div className="text-sm font-medium">Message deleted</div>
+  1011→  1011→        <div className="text-xs text-zinc-300 truncate">{subject}</div>
+  1012→  1012→      </div>
+  1013→  1013→      <button
+  1014→  1014→        onClick={onUndo}
+  1015→  1015→        className="text-sm font-semibold text-emerald-300 hover:text-emerald-200 px-2 py-1 rounded-md hover:bg-white/5 transition-colors shrink-0"
+  1016→  1016→        aria-label="Undo delete"
+  1017→  1017→      >
+  1018→  1018→        Undo
+  1019→  1019→      </button>
+  1020→  1020→      {/* Shrinking progress bar (5s countdown). */}
+  1021→  1021→      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400/80" style={{ width: `${progress}%` }} aria-hidden="true" />
+  1022→  1022→      {/* Hidden button to allow Escape to dismiss (sonner handles this anyway
+  1023→  1023→          when focus is on the toast; this is a defensive belt-and-braces). */}
+  1024→  1024→      <span className="sr-only" data-toast-id={toastId} />
+  1025→  1025→    </motion.div>
+  1026→  1026→  )
+  1027→  1027→}
+  1028→  1028→
+  1029→  1029→// ---------------- Message Reader ----------------
+  1030→  1030→function MessageReader({
+  1031→  1031→  messageSummary, onBack, onDelete, onToggleStar, onReport,
+  1032→  1032→}: {
+  1033→  1033→  messageSummary: MessageSummary
+  1034→  1034→  onBack: () => void
+  1035→  1035→  onDelete: () => void
+  1036→  1036→  onToggleStar: () => void
+  1037→  1037→  onReport: (reason: string, category: string) => void
+  1038→  1038→}) {
+  1039→  1039→  const [full, setFull] = useState<MessageFull | null>(null)
+  1040→  1040→  const [loading, setLoading] = useState(true)
+  1041→  1041→  const [showRaw, setShowRaw] = useState(false)
+  1042→  1042→  const [showAuth, setShowAuth] = useState(false)
+  1043→  1043→  const [showReport, setShowReport] = useState(false)
+  1044→  1044→  const [showReply, setShowReply] = useState(false)
+  1045→  1045→  const [imagesLoaded, setImagesLoaded] = useState(false)
+  1046→  1046→  const queryClient = useQueryClient()
+  1047→  1047→
+  1048→  1048→  useEffect(() => {
+  1049→  1049→    let active = true
+  1050→  1050→    setLoading(true)
+  1051→  1051→    setFull(null)
+  1052→  1052→    setImagesLoaded(false)
+  1053→  1053→    api.getMessage(messageSummary.id).then((data) => {
+  1054→  1054→      if (active) {
+  1055→  1055→        setFull(data.message)
+  1056→  1056→        setLoading(false)
+  1057→  1057→      }
+  1058→  1058→    }).catch(() => setLoading(false))
+  1059→  1059→    return () => { active = false }
+  1060→  1060→  }, [messageSummary.id])
+  1061→  1061→
+  1062→  1062→  const cat = CATEGORY_META[messageSummary.category] || CATEGORY_META.general
+  1063→  1063→  const authFail = messageSummary.spf !== 'pass' || messageSummary.dkim !== 'pass' || messageSummary.dmarc !== 'pass'
+  1064→  1064→  const spoofed = messageSummary.fromName !== messageSummary.fromEmail &&
+  1065→  1065→    /paypal|bank|secure|verify|official|government|google|microsoft|apple|amazon|facebook/i.test(messageSummary.fromName)
+  1066→  1066→  // H5: Detect punycode domains (IDN homograph attacks)
+  1067→  1067→  const hasPunycode = /xn--/i.test(messageSummary.fromEmail)
+  1068→  1068→  // Detect display name that doesn't match the domain in the email address
+  1069→  1069→  const senderDomain = messageSummary.fromEmail.split('@')[1] || ''
+  1070→  1070→  const displayNameLooksLikeDomain = /\.[a-z]{2,}$/i.test(messageSummary.fromName) &&
+  1071→  1071→    messageSummary.fromName !== senderDomain
+  1072→  1072→  // G10: Spam warning — if scanStatus is 'quarantined' or auth fails + urgency keywords
+  1073→  1073→  const isQuarantined = messageSummary.scanStatus === 'quarantined'
+  1074→  1074→  const isSuspicious = !isQuarantined && authFail && /urgent|verify|suspended|account|confirm|click here|limited time/i.test(messageSummary.subject + ' ' + messageSummary.previewText)
+  1075→  1075→  // G8: Importance marker — if sender is NOT a known bulk/noreply pattern + direct To: (not bulk)
+  1076→  1076→  const isImportant = !isQuarantined && !authFail &&
+  1077→  1077→    !/noreply|no-reply|donotreply|newsletter|notification|alert|automated/i.test(messageSummary.fromEmail) &&
+  1078→  1078→    !/unsubscribe|list-id|precedence:\s*bulk/i.test(messageSummary.previewText)
+  1079→  1079→
+  1080→  1080→  const sanitizedHtml = useMemo(() => {
+  1081→  1081→    if (!full?.bodyHtml) return ''
+  1082→  1082→    let out = full.bodyHtml
+  1083→  1083→    if (imagesLoaded) {
+  1084→  1084→      // restore blocked image srcs
+  1085→  1085→      out = out.replace(/(<img[^>]+)data-src-blocked=["']true["']/gi, '$1')
+  1086→  1086→    } else {
+  1087→  1087→      out = out.replace(/(<img[^>]+)src=["']https?:\/\/[^"']*["']/gi, '$1data-src-blocked="true"')
+  1088→  1088→    }
+  1089→  1089→    return sanitizeHtml(out)
+  1090→  1090→  }, [full?.bodyHtml, imagesLoaded])
+  1091→  1091→
+  1092→  1092→  return (
+  1093→  1093→    <motion.div
+  1094→  1094→      initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
+  1095→  1095→      transition={{ duration: 0.2 }}
+  1096→  1096→      className="flex flex-col h-full min-h-[55vh] lg:min-h-[65vh]"
+  1097→  1097→    >
+  1098→  1098→      {/* Reader header */}
+  1099→  1099→      <div className="border-b border-border/60 p-4 space-y-3">
+  1100→  1100→        <div className="flex items-center gap-2">
+  1101→  1101→          <Button variant="ghost" size="sm" onClick={onBack} className="gap-1 lg:hidden">
+  1102→  1102→            <ArrowLeft className="h-4 w-4" /> Back
+  1103→  1103→          </Button>
+  1104→  1104→          <div className="flex-1" />
+  1105→  1105→          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleStar} title={messageSummary.isStarred ? 'Unstar' : 'Star'}>
+  1106→  1106→            <Star className={cn('h-4 w-4', messageSummary.isStarred && 'text-amber-500 fill-amber-500')} />
+  1107→  1107→          </Button>
+  1108→  1108→          <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:bg-emerald-500/10" onClick={() => setShowReply(true)} title="Reply">
+  1109→  1109→            <Reply className="h-4 w-4" />
+  1110→  1110→          </Button>
+  1111→  1111→          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-500/10" onClick={onDelete} title="Delete">
+  1112→  1112→            <Trash2 className="h-4 w-4" />
+  1113→  1113→          </Button>
+  1114→  1114→          <DropdownMenu>
+  1115→  1115→            <DropdownMenuTrigger asChild>
+  1116→  1116→              <Button variant="ghost" size="icon" className="h-8 w-8" title="More">
+  1117→  1117→                <ChevronRight className="h-4 w-4 rotate-90" />
+  1118→  1118→              </Button>
+  1119→  1119→            </DropdownMenuTrigger>
+  1120→  1120→            <DropdownMenuContent align="end">
+  1121→  1121→              <DropdownMenuItem onClick={() => setShowAuth(!showAuth)} className="gap-2">
+  1122→  1122→                <ShieldCheck className="h-3.5 w-3.5" /> {showAuth ? 'Hide' : 'Show'} security panel
+  1123→  1123→              </DropdownMenuItem>
+  1124→  1124→              <DropdownMenuItem onClick={() => setShowRaw(!showRaw)} className="gap-2">
+  1125→  1125→                <Mail className="h-3.5 w-3.5" /> {showRaw ? 'HTML view' : 'Plain text view'}
+  1126→  1126→              </DropdownMenuItem>
+  1127→  1127→              <DropdownMenuItem onClick={() => setShowReply(true)} className="gap-2">
+  1128→  1128→                <Reply className="h-3.5 w-3.5" /> Reply to sender
+  1129→  1129→              </DropdownMenuItem>
+  1130→  1130→              <DropdownMenuItem
+  1131→  1131→                onClick={() => {
+  1132→  1132→                  // Dispatch a custom event the parent MessagesSection listens for
+  1133→  1133→                  window.dispatchEvent(new CustomEvent('studenttemp:forward-message', { detail: { id: messageSummary.id } }))
+  1134→  1134→                }}
+  1135→  1135→                className="gap-2"
+  1136→  1136→              >
+  1137→  1137→                <Send className="h-3.5 w-3.5" /> Forward message
+  1138→  1138→              </DropdownMenuItem>
+  1139→  1139→              <DropdownMenuItem
+  1140→  1140→                onClick={() => {
+  1141→  1141→                  window.open(`/api/messages/${messageSummary.id}/export`, '_blank')
+  1142→  1142→                  toast.success('Exporting as .eml…')
+  1143→  1143→                }}
+  1144→  1144→                className="gap-2"
+  1145→  1145→              >
+  1146→  1146→                <Download className="h-3.5 w-3.5" /> Export as .eml
+  1147→  1147→              </DropdownMenuItem>
+  1148→  1148→              <DropdownMenuItem
+  1149→  1149→                onClick={() => window.print()}
+  1150→  1150→                className="gap-2"
+  1151→  1151→              >
+  1152→  1152→                <Printer className="h-3.5 w-3.5" /> Print message
+  1153→  1153→              </DropdownMenuItem>
+  1154→  1154→              <DropdownMenuSeparator />
+  1155→  1155→              <DropdownMenuItem onClick={() => setShowReport(true)} className="gap-2 text-red-600">
+  1156→  1156→                <Flag className="h-3.5 w-3.5" /> Report this message
+  1157→  1157→              </DropdownMenuItem>
+  1158→  1158→            </DropdownMenuContent>
+  1159→  1159→          </DropdownMenu>
+  1160→  1160→        </div>
+  1161→  1161→
+  1162→  1162→        <h2 className="text-lg font-bold leading-tight">{messageSummary.subject}</h2>
+  1163→  1163→
+  1164→  1164→        <div className="flex items-start gap-3">
+  1165→  1165→          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+  1166→  1166→            {messageSummary.fromName[0]?.toUpperCase() || '?'}
+  1167→  1167→          </div>
+  1168→  1168→          <div className="flex-1 min-w-0">
+  1169→  1169→            <div className="flex items-center gap-2 flex-wrap">
+  1170→  1170→              <span className="font-semibold text-sm">{messageSummary.fromName}</span>
+  1171→  1171→              {spoofed && (
+  1172→  1172→                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+  1173→  1173→                  <AlertTriangle className="h-2.5 w-2.5" /> Display name looks suspicious
+  1174→  1174→                </Badge>
+  1175→  1175→              )}
+  1176→  1176→              {hasPunycode && (
+  1177→  1177→                <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/20 text-[10px] gap-1">
+  1178→  1178→                  <AlertTriangle className="h-2.5 w-2.5" /> IDN domain (possible spoof)
+  1179→  1179→                </Badge>
+  1180→  1180→              )}
+  1181→  1181→              {displayNameLooksLikeDomain && (
+  1182→  1182→                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+  1183→  1183→                  <AlertTriangle className="h-2.5 w-2.5" /> Name mimics a domain
+  1184→  1184→                </Badge>
+  1185→  1185→              )}
+  1186→  1186→              <Badge variant="outline" className={cn('text-[10px]', cat.color)}>{cat.label}</Badge>
+  1187→  1187→              {isImportant && (
+  1188→  1188→                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] gap-1">
+  1189→  1189→                  <AlertTriangle className="h-2.5 w-2.5" /> Important
+  1190→  1190→                </Badge>
+  1191→  1191→              )}
+  1192→  1192→            </div>
+  1193→  1193→            <p className="mt-0.5 text-xs text-muted-foreground font-mono break-all">&lt;{messageSummary.fromEmail}&gt;</p>
+  1194→  1194→            <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
+  1195→  1195→              <Clock className="h-3 w-3" /> {new Date(messageSummary.receivedAt).toLocaleString()}
+  1196→  1196→            </p>
+  1197→  1197→            {(spoofed || hasPunycode || displayNameLooksLikeDomain) && (
+  1198→  1198→              <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1">
+  1199→  1199→                <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+  1200→  1200→                <span>Authentication checks confirm the sending server's identity — they do not guarantee the message content is safe. Always verify the sender's real address above.</span>
+  1201→  1201→              </p>
+  1202→  1202→            )}
+  1203→  1203→          </div>
+  1204→  1204→        </div>
+  1205→  1205→
+  1206→  1206→        {/* Auth panel */}
+  1207→  1207→        <AnimatePresence>
+  1208→  1208→          {showAuth && (
+  1209→  1209→            <motion.div
+  1210→  1210→              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+  1211→  1211→              className="overflow-hidden"
+  1212→  1212→            >
+  1213→  1213→              <div className="grid grid-cols-3 gap-2 pt-2">
+  1214→  1214→                <AuthChip label="SPF" value={messageSummary.spf} />
+  1215→  1215→                <AuthChip label="DKIM" value={messageSummary.dkim} />
+  1216→  1216→                <AuthChip label="DMARC" value={messageSummary.dmarc} />
+  1217→  1217→              </div>
+  1218→  1218→              {authFail && (
+  1219→  1219→                <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300 flex gap-2">
+  1220→  1220→                  <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+  1221→  1221→                  <span>One or more authentication checks failed. Be cautious — the sender's identity could not be fully verified.</span>
+  1222→  1222→                </div>
+  1223→  1223→              )}
+  1224→  1224→            </motion.div>
+  1225→  1225→          )}
+  1226→  1226→        </AnimatePresence>
+  1227→  1227→
+  1228→  1228→        {/* Attachments */}
+  1229→  1229→        {full && full.attachments && full.attachments.length > 0 && (
+  1230→  1230→          <div className="flex flex-wrap gap-2 pt-1">
+  1231→  1231→            {full.attachments.map((a, i) => (
+  1232→  1232→              <div key={i} className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 text-xs">
+  1233→  1233→                <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+  1234→  1234→                <span className="font-medium">{a.name}</span>
+  1235→  1235→                <span className="text-muted-foreground">{(a.size / 1024).toFixed(0)} KB</span>
+  1236→  1236→              </div>
+  1237→  1237→            ))}
+  1238→  1238→          </div>
+  1239→  1239→        )}
+  1240→  1240→      </div>
+  1241→  1241→
+  1242→  1242→      {/* G10: Spam warning banner — borderline suspicious */}
+  1243→  1243→      {isSuspicious && (
+  1244→  1244→        <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+  1245→  1245→          <AlertTriangle className="h-4 w-4 shrink-0" />
+  1246→  1246→          <span>This message looks suspicious — authentication checks failed and urgency keywords detected.</span>
+  1247→  1247→        </div>
+  1248→  1248→      )}
+  1249→  1249→      {/* G10: Quarantined banner */}
+  1250→  1250→      {isQuarantined && (
+  1251→  1251→        <div className="border-b border-red-500/20 bg-red-500/5 px-4 py-2.5 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+  1252→  1252→          <Ban className="h-4 w-4 shrink-0" />
+  1253→  1253→          <span>This message was flagged by spam detection and quarantined. Exercise caution.</span>
+  1254→  1254→        </div>
+  1255→  1255→      )}
+  1256→  1256→
+  1257→  1257→      {/* External resources blocked banner */}
+  1258→  1258→      {messageSummary.externalResourcesBlocked > 0 && !imagesLoaded && (
+  1259→  1259→        <motion.div
+  1260→  1260→          initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+  1261→  1261→          className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300"
+  1262→  1262→        >
+  1263→  1263→          <Ban className="h-4 w-4 shrink-0" />
+  1264→  1264→          <span className="flex-1">{messageSummary.externalResourcesBlocked} external resource{messageSummary.externalResourcesBlocked !== 1 ? 's' : ''} blocked for your safety.</span>
+  1265→  1265→          <button
+  1266→  1266→            onClick={() => setImagesLoaded(true)}
+  1267→  1267→            className="font-medium underline-offset-2 hover:underline"
+  1268→  1268→          >
+  1269→  1269→            Load anyway
+  1270→  1270→          </button>
+  1271→  1271→        </motion.div>
+  1272→  1272→      )}
+  1273→  1273→
+  1274→  1274→      {/* Body */}
+  1275→  1275→      <ScrollArea className="flex-1 scrollbar-thin">
+  1276→  1276→        <div className="p-4">
+  1277→  1277→          {loading ? (
+  1278→  1278→            <div className="space-y-3 animate-stagger">
+  1279→  1279→              <div className="h-4 w-3/4 rounded bg-muted shimmer" />
+  1280→  1280→              <div className="h-4 w-full rounded bg-muted shimmer" />
+  1281→  1281→              <div className="h-4 w-5/6 rounded bg-muted shimmer" />
+  1282→  1282→              <div className="h-24 w-full rounded-lg bg-muted shimmer" />
+  1283→  1283→              <div className="h-4 w-2/3 rounded bg-muted shimmer" />
+  1284→  1284→            </div>
+  1285→  1285→          ) : showRaw ? (
+  1286→  1286→            <pre className="whitespace-pre-wrap break-words text-sm font-mono text-foreground/80">
+  1287→  1287→              {full?.bodyText}
+  1288→  1288→            </pre>
+  1289→  1289→          ) : (
+  1290→  1290→            <motion.div
+  1291→  1291→              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+  1292→  1292→              transition={{ duration: 0.25 }}
+  1293→  1293→            >
+  1294→  1294→              <iframe
+  1295→  1295→                title="message body"
+  1296→  1296→                srcDoc={sanitizedHtml}
+  1297→  1297→                className="w-full min-h-[300px] border-0"
+  1298→  1298→                sandbox="allow-same-origin allow-popups"
+  1299→  1299→                ref={(el) => {
+  1300→  1300→                  // Attach external link interstitial handler
+  1301→  1301→                  if (el && el.contentWindow) {
+  1302→  1302→                    el.contentWindow.onclick = (e) => {
+  1303→  1303→                      const target = (e.target as HTMLElement).closest('a')
+  1304→  1304→                      if (target && target.href) {
+  1305→  1305→                        e.preventDefault()
+  1306→  1306→                        const url = target.href
+  1307→  1307→                        const domain = (() => { try { return new URL(url).hostname } catch { return url } })()
+  1308→  1308→                        if (confirm(`You're leaving StudentTemp to visit ${domain}.\n\nDo you want to continue to ${url}?`)) {
+  1309→  1309→                          window.open(url, '_blank', 'noopener,noreferrer')
+  1310→  1310→                        }
+  1311→  1311→                      }
+  1312→  1312→                    }
+  1313→  1313→                  }
+  1314→  1314→                }}
+  1315→  1315→              />
+  1316→  1316→            </motion.div>
+  1317→  1317→          )}
+  1318→  1318→        </div>
+  1319→  1319→      </ScrollArea>
+  1320→  1320→
+  1321→  1321→      {/* Report dialog */}
+  1322→  1322→      <Dialog open={showReport} onOpenChange={setShowReport}>
+  1323→  1323→        <DialogContent className="sm:max-w-md">
+  1324→  1324→          <DialogHeader>
+  1325→  1325→            <DialogTitle className="flex items-center gap-2"><Flag className="h-4 w-4 text-red-500" /> Report this message</DialogTitle>
+  1326→  1326→            <DialogDescription>
+  1327→  1327→              Flag this message for review. The sender is not notified.
+  1328→  1328→            </DialogDescription>
+  1329→  1329→          </DialogHeader>
+  1330→  1330→          <ReportForm onSubmit={(reason, category) => { onReport(reason, category); setShowReport(false) }} />
+  1331→  1331→        </DialogContent>
+  1332→  1332→      </Dialog>
+  1333→  1333→
+  1334→  1334→      <ReplyDialog
+  1335→  1335→        open={showReply}
+  1336→  1336→        onOpenChange={setShowReply}
+  1337→  1337→        messageId={messageSummary.id}
+  1338→  1338→        to={messageSummary.fromEmail}
+  1339→  1339→        toName={messageSummary.fromName}
+  1340→  1340→        subject={messageSummary.subject}
+  1341→  1341→      />
+  1342→  1342→    </motion.div>
+  1343→  1343→  )
+  1344→  1344→}
+  1345→  1345→
+  1346→  1346→function ReportForm({ onSubmit }: { onSubmit: (reason: string, category: string) => void }) {
+  1347→  1347→  const [category, setCategory] = useState('spam')
+  1348→  1348→  const [reason, setReason] = useState('')
+  1349→  1349→  return (
+  1350→  1350→    <div className="space-y-4 py-2">
+  1351→  1351→      <div className="grid grid-cols-2 gap-2">
+  1352→  1352→        {[
+  1353→  1353→          { v: 'spam', l: 'Spam / Promo' },
+  1354→  1354→          { v: 'phishing', l: 'Phishing / Fraud' },
+  1355→  1355→          { v: 'abuse', l: 'Abuse / Harassment' },
+  1356→  1356→          { v: 'other', l: 'Other' },
+  1357→  1357→        ].map((o) => (
+  1358→  1358→          <button
+  1359→  1359→            key={o.v}
+  1360→  1360→            onClick={() => setCategory(o.v)}
+  1361→  1361→            className={cn(
+  1362→  1362→              'rounded-lg border px-3 py-2 text-sm font-medium transition-colors text-left',
+  1363→  1363→              category === o.v ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-accent'
+  1364→  1364→            )}
+  1365→  1365→          >
+  1366→  1366→            {o.l}
+  1367→  1367→          </button>
+  1368→  1368→        ))}
+  1369→  1369→      </div>
+  1370→  1370→      <textarea
+  1371→  1371→        value={reason}
+  1372→  1372→        onChange={(e) => setReason(e.target.value)}
+  1373→  1373→        placeholder="Add details (optional)..."
+  1374→  1374→        className="w-full min-h-[80px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  1375→  1375→      />
+  1376→  1376→      <DialogFooter>
+  1377→  1377→        <Button onClick={() => onSubmit(reason, category)} className="gap-2">
+  1378→  1378→          <Flag className="h-4 w-4" /> Submit report
+  1379→  1379→        </Button>
+  1380→  1380→      </DialogFooter>
+  1381→  1381→    </div>
+  1382→  1382→  )
+  1383→  1383→}
+  1384→  1384→
+  1385→  1385→function AuthChip({ label, value }: { label: string; value: string }) {
+  1386→  1386→  const pass = value === 'pass'
+  1387→  1387→  const warn = value === 'softfail' || value === 'none'
+  1388→  1388→  return (
+  1389→  1389→    <div className={cn(
+  1390→  1390→      'rounded-lg border p-2 text-center',
+  1391→  1391→      pass && 'bg-emerald-500/10 border-emerald-500/20',
+  1392→  1392→      warn && 'bg-amber-500/10 border-amber-500/20',
+  1393→  1393→      !pass && !warn && 'bg-red-500/10 border-red-500/20',
+  1394→  1394→    )}>
+  1395→  1395→      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+  1396→  1396→      <div className={cn(
+  1397→  1397→        'text-sm font-bold flex items-center justify-center gap-1',
+  1398→  1398→        pass && 'text-emerald-600 dark:text-emerald-400',
+  1399→  1399→        warn && 'text-amber-600 dark:text-amber-400',
+  1400→  1400→        !pass && !warn && 'text-red-600 dark:text-red-400',
+  1401→  1401→      )}>
+  1402→  1402→        {pass ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
+  1403→  1403→        {value}
+  1404→  1404→      </div>
+  1405→  1405→    </div>
+  1406→  1406→  )
+  1407→  1407→}
+  1408→  1408→
+  1409→  1409→function EmptyState({ icon, title, description, compact }: { icon: React.ReactNode; title: string; description: string; compact?: boolean }) {
+  1410→  1410→  return (
+  1411→  1411→    <motion.div
+  1412→  1412→      initial={{ opacity: 0, y: 8 }}
+  1413→  1413→      animate={{ opacity: 1, y: 0 }}
+  1414→  1414→      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+  1415→  1415→      className={cn('flex flex-col items-center justify-center text-center', compact ? 'p-8' : 'p-12')}
+  1416→  1416→    >
+  1417→  1417→      <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-500 animate-float">{icon}</div>
+  1418→  1418→      <h3 className="font-semibold text-lg">{title}</h3>
+  1419→  1419→      <p className="mt-1.5 max-w-xs text-sm text-muted-foreground leading-relaxed">{description}</p>
+  1420→  1420→    </motion.div>
+  1421→  1421→  )
+  1422→  1422→}
+  1423→  1423→
+  1424→  1424→// ---------- Reply Dialog ----------
+  1425→  1425→function ReplyDialog({
+  1426→  1426→  open, onOpenChange, messageId, to, toName, subject,
+  1427→  1427→}: {
+  1428→  1428→  open: boolean
+  1429→  1429→  onOpenChange: (v: boolean) => void
+  1430→  1430→  messageId: string
+  1431→  1431→  to: string
+  1432→  1432→  toName: string
+  1433→  1433→  subject: string
+  1434→  1434→}) {
+  1435→  1435→  const [body, setBody] = useState('')
+  1436→  1436→  const mutation = useMutation({
+  1437→  1437→    mutationFn: (text: string) =>
+  1438→  1438→      fetch(`/api/messages/${messageId}/reply`, {
+  1439→  1439→        method: 'POST',
+  1440→  1440→        headers: { 'Content-Type': 'application/json' },
+  1441→  1441→        body: JSON.stringify({ text }),
+  1442→  1442→      }).then(async (r) => {
+  1443→  1443→        const data = await r.json()
+  1444→  1444→        if (!r.ok) throw new Error(data.error || 'Reply failed')
+  1445→  1445→        return data
+  1446→  1446→      }),
+  1447→  1447→    onSuccess: (data) => {
+  1448→  1448→      toast.success('Reply sent', {
+  1449→  1449→        description: `Delivered to ${to}`,
+  1450→  1450→        duration: 3000,
+  1451→  1451→      })
+  1452→  1452→      setBody('')
+  1453→  1453→      onOpenChange(false)
+  1454→  1454→    },
+  1455→  1455→    onError: (e: Error) => toast.error(e.message),
+  1456→  1456→  })
+  1457→  1457→
+  1458→  1458→  const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`
+  1459→  1459→
+  1460→  1460→  return (
+  1461→  1461→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1462→  1462→      <DialogContent className="sm:max-w-lg">
+  1463→  1463→        <DialogHeader>
+  1464→  1464→          <DialogTitle className="flex items-center gap-2"><Reply className="h-4 w-4 text-emerald-500" /> Reply to sender</DialogTitle>
+  1465→  1465→          <DialogDescription>
+  1466→  1466→            Your reply will be sent via real SMTP from your inbox to <span className="font-mono font-medium">{to}</span>.
+  1467→  1467→          </DialogDescription>
+  1468→  1468→        </DialogHeader>
+  1469→  1469→        <div className="space-y-3 py-2">
+  1470→  1470→          <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
+  1471→  1471→            <div className="flex gap-2"><span className="text-muted-foreground w-12 shrink-0">To:</span><span className="font-mono break-all">{toName} &lt;{to}&gt;</span></div>
+  1472→  1472→            <div className="flex gap-2"><span className="text-muted-foreground w-12 shrink-0">Subject:</span><span className="font-medium">{replySubject}</span></div>
+  1473→  1473→          </div>
+  1474→  1474→          <textarea
+  1475→  1475→            value={body}
+  1476→  1476→            onChange={(e) => setBody(e.target.value)}
+  1477→  1477→            placeholder="Type your reply…"
+  1478→  1478→            className="w-full min-h-[140px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  1479→  1479→            autoFocus
+  1480→  1480→          />
+  1481→  1481→          <p className="text-[11px] text-muted-foreground">
+  1482→  1482→            Rate-limited to 5 replies/hour. The original message is quoted below your reply.
+  1483→  1483→          </p>
+  1484→  1484→        </div>
+  1485→  1485→        <DialogFooter>
+  1486→  1486→          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+  1487→  1487→          <Button
+  1488→  1488→            onClick={() => mutation.mutate(body)}
+  1489→  1489→            disabled={!body.trim() || mutation.isPending}
+  1490→  1490→            className="gap-2"
+  1491→  1491→          >
+  1492→  1492→            {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+  1493→  1493→            Send reply
+  1494→  1494→          </Button>
+  1495→  1495→        </DialogFooter>
+  1496→  1496→      </DialogContent>
+  1497→  1497→    </Dialog>
+  1498→  1498→  )
+  1499→  1499→}
+  1500→  1500→
+  1501→  1501→// ---------- Forward Dialog ----------
+  1502→  1502→function ForwardDialog({
+  1503→  1503→  messageId, onOpenChange,
+  1504→  1504→}: {
+  1505→  1505→  messageId: string | null
+  1506→  1506→  onOpenChange: (v: boolean) => void
+  1507→  1507→}) {
+  1508→  1508→  const [to, setTo] = useState('')
+  1509→  1509→  const [note, setNote] = useState('')
+  1510→  1510→  const mutation = useMutation({
+  1511→  1511→    mutationFn: (vars: { id: string; to: string; note: string }) =>
+  1512→  1512→      fetch(`/api/messages/${vars.id}/forward`, {
+  1513→  1513→        method: 'POST',
+  1514→  1514→        headers: { 'Content-Type': 'application/json' },
+  1515→  1515→        body: JSON.stringify({ to: vars.to, note: vars.note }),
+  1516→  1516→      }).then(async (r) => {
+  1517→  1517→        const data = await r.json()
+  1518→  1518→        if (!r.ok) throw new Error(data.error || 'Forward failed')
+  1519→  1519→        return data
+  1520→  1520→      }),
+  1521→  1521→    onSuccess: (data) => {
+  1522→  1522→      toast.success('Message forwarded', {
+  1523→  1523→        description: `Delivered to ${data.to}`,
+  1524→  1524→        duration: 3000,
+  1525→  1525→      })
+  1526→  1526→      setTo('')
+  1527→  1527→      setNote('')
+  1528→  1528→      onOpenChange(false)
+  1529→  1529→    },
+  1530→  1530→    onError: (e: Error) => toast.error(e.message),
+  1531→  1531→  })
+  1532→  1532→
+  1533→  1533→  const validEmail = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(to.trim())
+  1534→  1534→
+  1535→  1535→  return (
+  1536→  1536→    <Dialog open={!!messageId} onOpenChange={onOpenChange}>
+  1537→  1537→      <DialogContent className="sm:max-w-lg">
+  1538→  1538→        <DialogHeader>
+  1539→  1539→          <DialogTitle className="flex items-center gap-2"><Send className="h-4 w-4 text-emerald-500" /> Forward message</DialogTitle>
+  1540→  1540→          <DialogDescription>
+  1541→  1541→            Forward a copy of this message to another email address via real SMTP.
+  1542→  1542→          </DialogDescription>
+  1543→  1543→        </DialogHeader>
+  1544→  1544→        <div className="space-y-3 py-2">
+  1545→  1545→          <div className="space-y-2">
+  1546→  1546→            <label className="text-sm font-medium">To</label>
+  1547→  1547→            <Input
+  1548→  1548→              type="email"
+  1549→  1549→              value={to}
+  1550→  1550→              onChange={(e) => setTo(e.target.value)}
+  1551→  1551→              placeholder="recipient@example.com"
+  1552→  1552→              className={cn(to && !validEmail && 'border-red-500 focus-visible:ring-red-500')}
+  1553→  1553→              autoFocus
+  1554→  1554→            />
+  1555→  1555→            {to && !validEmail && (
+  1556→  1556→              <p className="text-xs text-red-500">Enter a valid email address</p>
+  1557→  1557→            )}
+  1558→  1558→          </div>
+  1559→  1559→          <div className="space-y-2">
+  1560→  1560→            <label className="text-sm font-medium">Note (optional)</label>
+  1561→  1561→            <textarea
+  1562→  1562→              value={note}
+  1563→  1563→              onChange={(e) => setNote(e.target.value)}
+  1564→  1564→              placeholder="Add a note before the forwarded message…"
+  1565→  1565→              className="w-full min-h-[80px] rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  1566→  1566→            />
+  1567→  1567→          </div>
+  1568→  1568→          <p className="text-[11px] text-muted-foreground">
+  1569→  1569→            The original message (with Fwd: prefix) will be sent from your inbox. Rate-limited to 5 forwards/hour.
+  1570→  1570→          </p>
+  1571→  1571→        </div>
+  1572→  1572→        <DialogFooter>
+  1573→  1573→          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+  1574→  1574→          <Button
+  1575→  1575→            onClick={() => messageId && mutation.mutate({ id: messageId, to: to.trim(), note })}
+  1576→  1576→            disabled={!validEmail || mutation.isPending}
+  1577→  1577→            className="gap-2"
+  1578→  1578→          >
+  1579→  1579→            {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+  1580→  1580→            Forward
+  1581→  1581→          </Button>
+  1582→  1582→        </DialogFooter>
+  1583→  1583→      </DialogContent>
+  1584→  1584→    </Dialog>
+  1585→  1585→  )
+  1586→  1586→}
+  1587→  1587→
+  1588→  1588→// ---------- Thread Group (collapsible conversation) ----------
+  1589→  1589→function ThreadGroup({ thread }: { thread: MessageSummary[] }) {
+  1590→  1590→  const [expanded, setExpanded] = useState(thread.length === 1)
+  1591→  1591→  const latest = thread[thread.length - 1]
+  1592→  1592→  const unreadCount = thread.filter(m => !m.isRead).length
+  1593→  1593→  const openMessageId = useAppStore((s) => s.openMessageId)
+  1594→  1594→  const setOpenMessageId = useAppStore((s) => s.setOpenMessageId)
+  1595→  1595→  const setSelectedMessageId = useAppStore((s) => s.setSelectedMessageId)
+  1596→  1596→  const updateMessage = useAppStore((s) => s.updateMessage)
+  1597→  1597→  const removeMessage = useAppStore((s) => s.removeMessage)
+  1598→  1598→  const queryClient = useQueryClient()
+  1599→  1599→
+  1600→  1600→  // Listen for expand/collapse all events
+  1601→  1601→  useEffect(() => {
+  1602→  1602→    const onToggleAll = () => setExpanded(prev => !prev)
+  1603→  1603→    window.addEventListener('studenttemp:thread-toggle-all', onToggleAll)
+  1604→  1604→    return () => window.removeEventListener('studenttemp:thread-toggle-all', onToggleAll)
+  1605→  1605→  }, [])
+  1606→  1606→
+  1607→  1607→  const updateMutation = useMutation({
+  1608→  1608→    mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
+  1609→  1609→      api.updateMessage(id, data),
+  1610→  1610→    onSuccess: (_d, vars) => {
+  1611→  1611→      updateMessage(vars.id, vars.data)
+  1612→  1612→      queryClient.invalidateQueries({ queryKey: ['messages'] })
+  1613→  1613→    },
+  1614→  1614→  })
+  1615→  1615→
+  1616→  1616→  const deleteMutation = useMutation({
+  1617→  1617→    mutationFn: (id: string) => api.deleteMessage(id),
+  1618→  1618→    onSuccess: (_d, id) => {
+  1619→  1619→      removeMessage(id)
+  1620→  1620→      queryClient.invalidateQueries({ queryKey: ['messages'] })
+  1621→  1621→    },
+  1622→  1622→  })
+  1623→  1623→
+  1624→  1624→  const reportMutation = useMutation({
+  1625→  1625→    mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
+  1626→  1626→      api.reportMessage(id, reason, category),
+  1627→  1627→    onSuccess: () => {
+  1628→  1628→      toast.success('Message reported')
+  1629→  1629→      queryClient.invalidateQueries({ queryKey: ['messages'] })
+  1630→  1630→    },
+  1631→  1631→  })
+  1632→  1632→
+  1633→  1633→  const cat = CATEGORY_META[latest.category] || CATEGORY_META.general
+  1634→  1634→
+  1635→  1635→  return (
+  1636→  1636→    <div className="bg-card">
+  1637→  1637→      {/* Thread header */}
+  1638→  1638→      <button
+  1639→  1639→        onClick={() => setExpanded(!expanded)}
+  1640→  1640→        className="w-full text-left p-3 flex items-start gap-3 hover:bg-accent/30 transition-colors"
+  1641→  1641→      >
+  1642→  1642→        <div className="relative shrink-0">
+  1643→  1643→          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+  1644→  1644→            {latest.fromName[0]?.toUpperCase() || '?'}
+  1645→  1645→          </div>
+  1646→  1646→          {unreadCount > 0 && (
+  1647→  1647→            <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 grid place-items-center rounded-full bg-emerald-500 text-[9px] font-bold text-white px-1 ring-2 ring-background">
+  1648→  1648→              {unreadCount}
+  1649→  1649→            </span>
+  1650→  1650→          )}
+  1651→  1651→        </div>
+  1652→  1652→        <div className="flex-1 min-w-0 overflow-hidden">
+  1653→  1653→          <div className="flex items-center justify-between gap-2">
+  1654→  1654→            <span className="text-sm font-bold truncate min-w-0">{latest.fromName}</span>
+  1655→  1655→            <div className="flex items-center gap-1.5 shrink-0">
+  1656→  1656→              {thread.length > 1 && (
+  1657→  1657→                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+  1658→  1658→                  {thread.length} messages
+  1659→  1659→                </span>
+  1660→  1660→              )}
+  1661→  1661→              <span className="text-[11px] text-muted-foreground tabular-nums">{formatTime(latest.receivedAt)}</span>
+  1662→  1662→            </div>
+  1663→  1663→          </div>
+  1664→  1664→          <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+  1665→  1665→            <span className="text-sm truncate flex-1 min-w-0 font-semibold">
+  1666→  1666→              {latest.subject.replace(/^(re:\s*|fwd:\s*)+/i, '')}
+  1667→  1667→            </span>
+  1668→  1668→            <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
+  1669→  1669→          </div>
+  1670→  1670→          <p className="mt-0.5 text-xs text-muted-foreground truncate">{latest.previewText}</p>
+  1671→  1671→        </div>
+  1672→  1672→      </button>
+  1673→  1673→
+  1674→  1674→      {/* Expanded thread messages */}
+  1675→  1675→      <AnimatePresence initial={false}>
+  1676→  1676→        {expanded && thread.length > 1 && (
+  1677→  1677→          <motion.div
+  1678→  1678→            initial={{ height: 0, opacity: 0 }}
+  1679→  1679→            animate={{ height: 'auto', opacity: 1 }}
+  1680→  1680→            exit={{ height: 0, opacity: 0 }}
+  1681→  1681→            transition={{ duration: 0.2, ease: 'easeOut' }}
+  1682→  1682→            className="overflow-hidden border-t border-border/40"
+  1683→  1683→          >
+  1684→  1684→            <ul className="divide-y divide-border/30">
+  1685→  1685→              {thread.map((msg) => (
+  1686→  1686→                <li key={msg.id}>
+  1687→  1687→                  <button
+  1688→  1688→                    onClick={() => { setOpenMessageId(msg.id); setSelectedMessageId(msg.id) }}
+  1689→  1689→                    className={cn(
+  1690→  1690→                      'w-full text-left px-3 py-2.5 flex gap-2.5 hover:bg-accent/30 transition-colors',
+  1691→  1691→                      openMessageId === msg.id && 'bg-emerald-500/10'
+  1692→  1692→                    )}
+  1693→  1693→                  >
+  1694→  1694→                    <div className="flex-1 min-w-0 overflow-hidden pl-6">
+  1695→  1695→                      <div className="flex items-center gap-2">
+  1696→  1696→                        <span className={cn('text-xs truncate flex-1 min-w-0', msg.isRead ? 'text-muted-foreground' : 'font-bold text-foreground')}>
+  1697→  1697→                          {msg.fromName}
+  1698→  1698→                        </span>
+  1699→  1699→                        <span className="text-[10px] text-muted-foreground shrink-0">{formatTime(msg.receivedAt)}</span>
+  1700→  1700→                      </div>
+  1701→  1701→                      <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.subject}</p>
+  1702→  1702→                    </div>
+  1703→  1703→                    {!msg.isRead && <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 mt-1" />}
+  1704→  1704→                  </button>
+  1705→  1705→                </li>
+  1706→  1706→              ))}
+  1707→  1707→            </ul>
+  1708→  1708→          </motion.div>
+  1709→  1709→        )}
+  1710→  1710→      </AnimatePresence>
+  1711→  1711→    </div>
+  1712→  1712→  )
+  1713→  1713→}
+  1714→  1714→

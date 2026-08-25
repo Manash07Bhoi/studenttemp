@@ -265,6 +265,79 @@ export function SettingsSection({ triggerGenerate: _triggerGenerate }: { trigger
         </CardContent>
       </Card>
 
+      {/* ----------------------------------------------------------------- */}
+      {/* Account Mode — Placeholder for the future permanent-mailbox tier. */}
+      {/* Not implemented yet (no login system). The card documents the      */}
+      {/* cross-cutting cleanup / conflict logic required when this tier     */}
+      {/* ships, so the requirements aren't lost between now and the actual  */}
+      {/* Account Mode build.                                                */}
+      {/* ----------------------------------------------------------------- */}
+      {/* L3 (GAP-ANALYSIS-V2.md) — Filter conflict resolution: */}
+      {/*   When a new message matches multiple filters, the actions execute  */}
+      {/*   in priority order with these rules:                              */}
+      {/*   • "Forward" actions always execute regardless of later "Delete"  */}
+      {/*     actions in the chain (a copy is forwarded before deletion).    */}
+      {/*   • "Delete" halts further filter evaluation immediately after    */}
+      {/*     any pending Forward completes.                                 */}
+      {/*   • Multiple "Apply label" actions from different matching         */}
+      {/*     filters are all additive (a message can carry several labels   */}
+      {/*     from several filters simultaneously).                          */}
+      {/*                                                                    */}
+      {/* L5 (GAP-ANALYSIS-V2.md) — Account deletion cleanup: */}
+      {/*   On a DELETE account request:                                     */}
+      {/*   • Cancel all pending Scheduled Sends immediately (never fire    */}
+      {/*     mail after account deletion).                                  */}
+      {/*   • Disable the Vacation Responder immediately.                   */}
+      {/*   • Revoke all App Passwords, IMAP/SMTP sessions, and active      */}
+      {/*     login sessions instantly.                                       */}
+      {/*   • Enter a 14-day grace-deletion window (soft-deleted,           */}
+      {/*     recoverable via re-login). Document this clearly in the       */}
+      {/*     deletion confirmation UI: "Your account will be permanently   */}
+      {/*     deleted in 14 days unless you sign back in."                   */}
+      {/*   • On grace window expiry → real, permanent, irreversible purge  */}
+      {/*     of mail, attachments, contacts, and metadata.                  */}
+      {/*                                                                    */}
+      {/* G9 (GAP-ANALYSIS-V2.md) — Send-as alias reply-from logic:          */}
+      {/*   Documented inline in `ReplyDialog` (src/components/sections/    */}
+      {/*   messages-section.tsx). When replying to a message sent to an     */}
+      {/*   alias, default From = that alias (not primary), and the alias's  */}
+      {/*   configured signature is auto-inserted.                           */}
+      <Card className="border-dashed border-emerald-500/30 bg-emerald-500/[0.02]">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base text-emerald-700 dark:text-emerald-400">
+            <ShieldCheck className="h-4 w-4" /> Account Mode (coming soon)
+          </CardTitle>
+          <CardDescription>
+            Permanent mailboxes, scheduled sends, filters, vacation responder, and account-deletion safeguards.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            Account Mode is the future permanent-mailbox tier (separate from the anonymous
+            Temporary Mode you are using right now). The following conditional logic is specified
+            but not yet wired in code — it lands when the account system ships.
+          </p>
+          <ul className="space-y-2 list-disc pl-5 text-xs">
+            <li>
+              <span className="font-medium text-foreground">Filter conflict resolution (L3):</span>{' '}
+              Forward actions always execute before Delete; Delete halts further filter evaluation
+              after pending Forwards complete; multiple Apply-label actions are additive.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Account deletion cleanup (L5):</span>{' '}
+              Cancels scheduled sends, disables the vacation responder, revokes all sessions and
+              App Passwords, and enters a 14-day grace window before the permanent purge of mail,
+              contacts, and metadata.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Send-as alias (G9):</span>{' '}
+              Replying to a message sent to an alias defaults From to that alias and inserts the
+              alias's configured signature.
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+
       {/* FAQ accordion */}
       <Card>
         <CardHeader>

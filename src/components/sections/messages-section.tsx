@@ -10,9 +10,9 @@ import {
   Mail, MailOpen, Star, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, Paperclip,
   Flag, ChevronRight, RefreshCw, Inbox as InboxIcon, Search, X,
   CheckCheck, Ban, AlertTriangle, Clock, Download, Reply, Send, MessagesSquare,
-  ChevronsDownUp, CheckSquare, Check, Printer,
+  ChevronsDownUp, CheckSquare, Check, Printer, ReplyAll, BellOff, Bell,
 } from 'lucide-react'
-import { api } from '@/lib/api-client'
+import { api, ApiError } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import type { MessageSummary, MessageFull } from '@/lib/types'
 import { toast } from 'sonner'
@@ -79,6 +79,11 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const freshMessageId = useAppStore((s) => s.freshMessageId)
   const selectedMessageId = useAppStore((s) => s.selectedMessageId)
   const setSelectedMessageId = useAppStore((s) => s.setSelectedMessageId)
+  // L1: handlers for transitioning to the Expired screen when the server
+  // reports the active inbox has expired mid-request.
+  const setActiveSection = useAppStore((s) => s.setActiveSection)
+  const setActiveInboxId = useAppStore((s) => s.setActiveInboxId)
+  const setInboxMirror = useAppStore((s) => s.setInboxMirror)
   const queryClient = useQueryClient()
 
   const activeInbox = inboxes.find((i) => i.id === activeInboxId)
@@ -99,12 +104,46 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
   const openMessageIdRef = useRef<string | null>(openMessageId)
   useEffect(() => { openMessageIdRef.current = openMessageId }, [openMessageId])
 
-  const { data: msgData, isFetching, refetch } = useQuery({
+  const { data: msgData, isFetching, refetch, error: msgQueryError } = useQuery({
     queryKey: ['messages', activeInboxId],
     queryFn: () => api.listMessages(activeInboxId!),
     enabled: !!activeInboxId,
     refetchInterval: 30_000,
+    // L1: GAP-ANALYSIS-V2.md — when the inbox expires mid-request, the server
+    // returns `{ code: 'INBOX_EXPIRED' }` with status 410 (not a generic 404/500).
+    // On receiving this specific code, transition straight to the Expired screen
+    // instead of showing a generic error+retry (a retry would be pointless — the
+    // inbox is genuinely gone).
+    retry: (failureCount, err) => {
+      if (err instanceof ApiError && err.code === 'INBOX_EXPIRED') return false
+      return failureCount < 3
+    },
   })
+
+  // L1: react to an INBOX_EXPIRED error code on the messages query and route
+  // the user to the Expired screen — mirroring the socket-driven
+  // `onInboxExpired` path in AppShell. We hold a "handled" ref keyed by inboxId
+  // so we don't double-fire the transition if the effect re-runs.
+  const inboxExpiredHandledRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!msgQueryError || !activeInboxId) return
+    if (inboxExpiredHandledRef.current === activeInboxId) return
+    if (msgQueryError instanceof ApiError && msgQueryError.code === 'INBOX_EXPIRED') {
+      inboxExpiredHandledRef.current = activeInboxId
+      const email = activeInbox?.email ?? ''
+      // Tear down the local state for this inbox so a fresh start is required.
+      setActiveInboxId(null)
+      setInboxMirror(null)
+      // Surface the expired section with the original email for context.
+      setActiveSection('expired', { email })
+      toast.warning('Inbox expired', {
+        description: email ? `The inbox ${email} has expired.` : 'Your inbox has expired.',
+        duration: 5000,
+      })
+      // Drop the errored query from cache so a future visit re-queries cleanly.
+      queryClient.removeQueries({ queryKey: ['messages', activeInboxId] })
+    }
+  }, [msgQueryError, activeInboxId, activeInbox?.email, setActiveInboxId, setInboxMirror, setActiveSection, queryClient])
 
   useEffect(() => {
     if (msgData?.messages) {
@@ -186,6 +225,86 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
     })
   }, [filtered, threadView])
 
+  // G7 (GAP-ANALYSIS-V2.md): "Mute conversation" — archived + future messages
+  // in that thread skip the Inbox (and don't trigger notifications). We store
+  // muted thread subject hashes in localStorage so the mute survives tab close
+  // and reload. Muting is reversible via the "Unmute" action.
+  //
+  // The mute is keyed by the same normalized subject used to group threads, so
+  // it correctly matches both the message list and thread view. Account Mode
+  // would additionally skip the new-message notification/badge for muted
+  // threads — that requires server-side awareness (TODO: when Account Mode is
+  // built, mirror mute state to the `threads` table so notifications can be
+  // suppressed server-side too).
+  const [mutedThreads, setMutedThreads] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const raw = localStorage.getItem('studenttemp_muted_threads')
+      const arr = raw ? JSON.parse(raw) : []
+      return new Set(Array.isArray(arr) ? arr : [])
+    } catch {
+      return new Set()
+    }
+  })
+  const [showMuted, setShowMuted] = useState(false)
+
+  const muteThread = useCallback((subject: string) => {
+    const key = subject.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase()
+    if (!key) return
+    setMutedThreads((prev) => {
+      if (prev.has(key)) return prev
+      const next = new Set(prev)
+      next.add(key)
+      try {
+        localStorage.setItem('studenttemp_muted_threads', JSON.stringify(Array.from(next)))
+      } catch {}
+      return next
+    })
+    toast.success('Conversation muted', {
+      description: 'Future messages in this thread will skip the Inbox.',
+      duration: 3500,
+    })
+  }, [])
+
+  const unmuteThread = useCallback((subject: string) => {
+    const key = subject.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase()
+    if (!key) return
+    setMutedThreads((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      try {
+        localStorage.setItem('studenttemp_muted_threads', JSON.stringify(Array.from(next)))
+      } catch {}
+      return next
+    })
+    toast.success('Conversation unmuted')
+  }, [])
+
+  // Filter muted threads out of the visible list (unless "Show muted" is on).
+  const visibleThreads = useMemo(() => {
+    if (!threads) return null
+    if (showMuted) return threads
+    return threads.filter((thread) => {
+      const key = thread[0].subject.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase()
+      return !mutedThreads.has(key)
+    })
+  }, [threads, showMuted, mutedThreads])
+
+  // Also hide muted messages in the flat list view — when a thread is muted,
+  // its individual messages are hidden from the Inbox entirely (matches Gmail).
+  // The `filtered` memo is recomputed below; we apply the mute filter to the
+  // message-level list too so the same mute state covers both views. When the
+  // user opts to show muted conversations (`showMuted=true`), we skip the
+  // filter so muted messages reappear in both the flat list and thread view.
+  const listFiltered = useMemo(() => {
+    if (mutedThreads.size === 0 || showMuted) return filtered
+    return filtered.filter((m) => {
+      const key = m.subject.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase()
+      return !mutedThreads.has(key)
+    })
+  }, [filtered, mutedThreads, showMuted])
+
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { isRead?: boolean; isStarred?: boolean } }) =>
       api.updateMessage(id, data),
@@ -260,6 +379,121 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
     )
   }, [removeMessage, setOpenMessageId, prependMessage, queryClient, activeInboxId])
 
+  // ----------------------------------------------------------------------------
+  // G11 (GAP-ANALYSIS-V2.md): Undo for mark-read / mark-unread and star/unstar
+  // actions — mirrors the delete-undo pattern. State changes are applied
+  // optimistically to the store; a 5s Undo window lets the user reverse them
+  // before the API call fires. If the user taps Undo, we revert the local
+  // state and never hit the server. If the API call fails after the window
+  // closes, we revert and surface an error toast.
+  //
+  // The same `UndoSnackbar` shell is reused with a different icon + label
+  // depending on the action (read/unread vs star/unstar).
+  // ----------------------------------------------------------------------------
+  type PendingStateChange = {
+    msg: MessageSummary
+    patch: { isRead?: boolean; isStarred?: boolean }
+    timer: ReturnType<typeof setTimeout>
+  }
+  const pendingStateRef = useRef<Map<string, PendingStateChange>>(new Map())
+
+  const fireStateChange = (msgId: string, patch: { isRead?: boolean; isStarred?: boolean }) => {
+    api.updateMessage(msgId, patch)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['messages', activeInboxId] }))
+      .catch(() => {
+        // Revert the local state and surface an error toast.
+        updateMessage(msgId, {
+          isRead: patch.isRead !== undefined ? !patch.isRead : undefined,
+          isStarred: patch.isStarred !== undefined ? !patch.isStarred : undefined,
+        })
+        toast.error('Failed to update message', {
+          description: 'Your change was reverted.',
+        })
+      })
+  }
+
+  const handleStateChangeWithUndo = useCallback((
+    msg: MessageSummary,
+    patch: { isRead?: boolean; isStarred?: boolean },
+    opts: { title: string; undoTitle: string; icon: 'read' | 'star'; idPrefix: string },
+  ) => {
+    // If there's already a pending state change for this message, commit it
+    // immediately (no more undo) before starting the new one — otherwise the
+    // previous change would be silently lost.
+    const existing = pendingStateRef.current.get(msg.id)
+    if (existing) {
+      clearTimeout(existing.timer)
+      pendingStateRef.current.delete(msg.id)
+      fireStateChange(existing.msg.id, existing.patch)
+    }
+
+    // 1. Optimistic local state update.
+    updateMessage(msg.id, patch)
+
+    // 2. Schedule the real API call for 5s from now.
+    const timer = setTimeout(() => {
+      pendingStateRef.current.delete(msg.id)
+      fireStateChange(msg.id, patch)
+    }, 5000)
+
+    pendingStateRef.current.set(msg.id, { msg, patch, timer })
+
+    // 3. Show the snackbar with an Undo affordance.
+    toast.custom(
+      (t) => (
+        <UndoSnackbar
+          toastId={t}
+          subject={msg.subject}
+          icon={opts.icon}
+          title={opts.title}
+          onUndo={() => {
+            const entry = pendingStateRef.current.get(msg.id)
+            if (entry) {
+              clearTimeout(entry.timer)
+              pendingStateRef.current.delete(msg.id)
+              // Revert the optimistic local state.
+              updateMessage(msg.id, {
+                isRead: entry.patch.isRead !== undefined ? !entry.patch.isRead : undefined,
+                isStarred: entry.patch.isStarred !== undefined ? !entry.patch.isStarred : undefined,
+              })
+            }
+            toast.dismiss(t)
+          }}
+        />
+      ),
+      { duration: 5000, id: `${opts.idPrefix}-${msg.id}` }
+    )
+  }, [updateMessage, queryClient, activeInboxId])
+
+  // Read/unread undo wrapper. Toggling read can flow from swipe-right OR the
+  // hover/context-menu "Mark read" / "Mark unread" actions.
+  const handleToggleReadWithUndo = useCallback((msg: MessageSummary) => {
+    handleStateChangeWithUndo(
+      msg,
+      { isRead: !msg.isRead },
+      {
+        title: msg.isRead ? 'Marked as unread' : 'Marked as read',
+        undoTitle: 'Revert',
+        icon: 'read',
+        idPrefix: 'undo-read',
+      },
+    )
+  }, [handleStateChangeWithUndo])
+
+  // Star/unstar undo wrapper.
+  const handleToggleStarWithUndo = useCallback((msg: MessageSummary) => {
+    handleStateChangeWithUndo(
+      msg,
+      { isStarred: !msg.isStarred },
+      {
+        title: msg.isStarred ? 'Removed star' : 'Starred',
+        undoTitle: 'Revert',
+        icon: 'star',
+        idPrefix: 'undo-star',
+      },
+    )
+  }, [handleStateChangeWithUndo])
+
   const reportMutation = useMutation({
     mutationFn: ({ id, reason, category }: { id: string; reason: string; category: string }) =>
       api.reportMessage(id, reason, category),
@@ -278,7 +512,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
       return next
     })
   }
-  const selectAll = () => setSelectedIds(new Set(filtered.map(m => m.id)))
+  const selectAll = () => setSelectedIds(new Set(listFiltered.map(m => m.id)))
   const deselectAll = () => setSelectedIds(new Set())
   const bulkMarkRead = async () => {
     for (const id of selectedIds) {
@@ -387,6 +621,20 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
               <span className="hidden lg:inline">All</span>
             </Button>
           )}
+          {/* G7: Show/hide muted conversations. Hidden count badge surfaces
+              when threads have been muted. */}
+          {mutedThreads.size > 0 && (
+            <Button
+              size="sm"
+              variant={showMuted ? 'default' : 'ghost'}
+              onClick={() => setShowMuted((v) => !v)}
+              className="gap-1.5 text-xs"
+              title={showMuted ? 'Hide muted conversations' : 'Show muted conversations'}
+            >
+              {showMuted ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
+              <span className="hidden lg:inline">{showMuted ? 'Hide muted' : `Muted (${mutedThreads.size})`}</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -426,7 +674,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
               </div>
             ) : (
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {filtered.length} {filtered.length === 1 ? 'message' : 'messages'}
+                {listFiltered.length} {listFiltered.length === 1 ? 'message' : 'messages'}
               </span>
             )}
             <div className="flex items-center gap-1">
@@ -508,27 +756,35 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                   </div>
                 ))}
               </div>
-            ) : filtered.length === 0 ? (
+            ) : listFiltered.length === 0 ? (
               <EmptyState
                 icon={<Mail className="h-7 w-7" />}
-                title={query || filter !== 'all' ? 'No matching messages' : 'No messages yet'}
+                title={query || filter !== 'all' ? 'No matching messages' : (mutedThreads.size > 0 ? 'Inbox cleared' : 'No messages yet')}
                 description={
                   query || filter !== 'all'
                     ? 'Try a different search or filter.'
-                    : 'New messages will appear here in real time as they arrive.'
+                    : mutedThreads.size > 0
+                      ? 'All visible messages are muted. Tap “Muted” above to reveal them.'
+                      : 'New messages will appear here in real time as they arrive.'
                 }
                 compact
               />
-            ) : threadView && threads ? (
+            ) : threadView && visibleThreads ? (
               <div className="divide-y divide-border/40">
-                {threads.map((thread, ti) => (
-                  <ThreadGroup key={ti} thread={thread} />
+                {visibleThreads.map((thread, ti) => (
+                  <ThreadGroup
+                    key={ti}
+                    thread={thread}
+                    isMuted={mutedThreads.has(thread[0].subject.replace(/^(re:\s*|fwd:\s*)+/i, '').trim().toLowerCase())}
+                    onMute={() => muteThread(thread[0].subject)}
+                    onUnmute={() => unmuteThread(thread[0].subject)}
+                  />
                 ))}
               </div>
             ) : (
               <ul className="divide-y divide-border/40">
                 <AnimatePresence initial={false}>
-                  {filtered.map((msg) => (
+                  {listFiltered.map((msg) => (
                     <MessageListItem
                       key={msg.id}
                       msg={msg}
@@ -543,8 +799,8 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                         setOpenMessageId(msg.id)
                         setSelectedMessageId(msg.id)
                       }}
-                      onToggleRead={() => updateMutation.mutate({ id: msg.id, data: { isRead: !msg.isRead } })}
-                      onToggleStar={() => updateMutation.mutate({ id: msg.id, data: { isStarred: !msg.isStarred } })}
+                      onToggleRead={() => handleToggleReadWithUndo(msg)}
+                      onToggleStar={() => handleToggleStarWithUndo(msg)}
                       onDelete={() => handleDeleteWithUndo(msg)}
                       onReport={(reason, category) => reportMutation.mutate({ id: msg.id, reason, category })}
                       onForward={() => setForwardingMsgId(msg.id)}
@@ -566,7 +822,7 @@ export function MessagesSection({ triggerGenerate: _triggerGenerate }: { trigger
                 messageSummary={openMsg}
                 onBack={() => setOpenMessageId(null)}
                 onDelete={() => handleDeleteWithUndo(openMsg)}
-                onToggleStar={() => updateMutation.mutate({ id: openMsg.id, data: { isStarred: !openMsg.isStarred } })}
+                onToggleStar={() => handleToggleStarWithUndo(openMsg)}
                 onReport={(reason, category) => reportMutation.mutate({ id: openMsg.id, reason, category })}
               />
             ) : (
@@ -969,14 +1225,21 @@ function MessageListItem({
 // ---------------- Undo Snackbar (custom sonner toast) ----------------
 // Per MOTION-SYSTEM.md §5.1: slides up from bottom, holds 5s with a shrinking
 // progress bar, tapping "Undo" re-inserts the deleted message.
+//
+// G11 (GAP-ANALYSIS-V2.md): the same shell is reused for mark-read / star
+// undo by passing a different `icon` ('delete' | 'read' | 'star') and `title`.
 function UndoSnackbar({
   toastId,
   subject,
   onUndo,
+  icon = 'delete',
+  title,
 }: {
   toastId: string | number
   subject: string
   onUndo: () => void
+  icon?: 'delete' | 'read' | 'star'
+  title?: string
 }) {
   const [progress, setProgress] = useState(100)
   useEffect(() => {
@@ -993,6 +1256,13 @@ function UndoSnackbar({
     return () => cancelAnimationFrame(raf)
   }, [])
 
+  const meta = icon === 'delete'
+    ? { Icon: Trash2, badge: 'bg-red-500/20 text-red-300', label: title ?? 'Message deleted', accent: 'text-red-300', ariaLabel: 'Undo delete' }
+    : icon === 'star'
+      ? { Icon: Star, badge: 'bg-amber-500/20 text-amber-300', label: title ?? 'Starred', accent: 'text-amber-300', ariaLabel: 'Undo star' }
+      : { Icon: MailOpen, badge: 'bg-emerald-500/20 text-emerald-300', label: title ?? 'Marked as read', accent: 'text-emerald-300', ariaLabel: 'Undo mark-read' }
+  const { Icon, badge, label, ariaLabel } = meta
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 60, scale: 0.96 }}
@@ -1003,17 +1273,17 @@ function UndoSnackbar({
       role="alert"
       aria-live="assertive"
     >
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-red-500/20 text-red-300 shrink-0">
-        <Trash2 className="h-4 w-4" />
+      <span className={cn('grid h-8 w-8 place-items-center rounded-full shrink-0', badge)}>
+        <Icon className="h-4 w-4" />
       </span>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium">Message deleted</div>
+        <div className="text-sm font-medium">{label}</div>
         <div className="text-xs text-zinc-300 truncate">{subject}</div>
       </div>
       <button
         onClick={onUndo}
         className="text-sm font-semibold text-emerald-300 hover:text-emerald-200 px-2 py-1 rounded-md hover:bg-white/5 transition-colors shrink-0"
-        aria-label="Undo delete"
+        aria-label={ariaLabel}
       >
         Undo
       </button>
@@ -1042,6 +1312,10 @@ function MessageReader({
   const [showAuth, setShowAuth] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [showReply, setShowReply] = useState(false)
+  // G2: Reply All — 'sender' = reply to original sender only; 'all' = reply to
+  // sender + additional Cc recipients the user adds. The dialog opens in the
+  // matching mode depending on which menu item the user tapped.
+  const [replyMode, setReplyMode] = useState<'sender' | 'all'>('sender')
   const [imagesLoaded, setImagesLoaded] = useState(false)
   const queryClient = useQueryClient()
 
@@ -1124,8 +1398,11 @@ function MessageReader({
               <DropdownMenuItem onClick={() => setShowRaw(!showRaw)} className="gap-2">
                 <Mail className="h-3.5 w-3.5" /> {showRaw ? 'HTML view' : 'Plain text view'}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowReply(true)} className="gap-2">
+              <DropdownMenuItem onClick={() => { setReplyMode('sender'); setShowReply(true) }} className="gap-2">
                 <Reply className="h-3.5 w-3.5" /> Reply to sender
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setReplyMode('all'); setShowReply(true) }} className="gap-2">
+                <ReplyAll className="h-3.5 w-3.5" /> Reply to all
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
@@ -1338,6 +1615,7 @@ function MessageReader({
         to={messageSummary.fromEmail}
         toName={messageSummary.fromName}
         subject={messageSummary.subject}
+        replyAll={replyMode === 'all'}
       />
     </motion.div>
   )
@@ -1422,8 +1700,26 @@ function EmptyState({ icon, title, description, compact }: { icon: React.ReactNo
 }
 
 // ---------- Reply Dialog ----------
+// G2 (GAP-ANALYSIS-V2.md): supports two modes —
+//   • replyAll=false → "Reply to sender": To = original sender only.
+//   • replyAll=true  → "Reply to all": To = original sender, plus a Cc field
+//     that the user can pre-fill with additional recipients (and a note that
+//     replies will be sent to all known recipients).
+//
+// The Cc field is intentionally a free-text comma-separated list — the
+// temporary-inbox model doesn't store the original To/Cc recipient list of
+// inbound mail (only the sender), so we expose the input for the user to add
+// the other participants manually. In a future Account Mode, the original
+// To/Cc headers would be parsed and pre-filled here automatically.
+//
+// G9 (GAP-ANALYSIS-V2.md, Account Mode TODO): when this code is repurposed for
+// Account Mode, the "From" field on the reply should default to whichever
+// alias the original message was delivered to (not the primary address), and
+// the signature auto-inserted should match the alias's configured signature.
+// This logic is documented here for the future Account Mode migration; it is
+// intentionally not wired in Temporary Mode (which has no aliases).
 function ReplyDialog({
-  open, onOpenChange, messageId, to, toName, subject,
+  open, onOpenChange, messageId, to, toName, subject, replyAll,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -1431,25 +1727,30 @@ function ReplyDialog({
   to: string
   toName: string
   subject: string
+  replyAll?: boolean
 }) {
   const [body, setBody] = useState('')
+  const [cc, setCc] = useState('')
   const mutation = useMutation({
-    mutationFn: (text: string) =>
+    mutationFn: (vars: { text: string; cc?: string }) =>
       fetch(`/api/messages/${messageId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: vars.text, cc: vars.cc }),
       }).then(async (r) => {
         const data = await r.json()
         if (!r.ok) throw new Error(data.error || 'Reply failed')
         return data
       }),
     onSuccess: (data) => {
-      toast.success('Reply sent', {
-        description: `Delivered to ${to}`,
+      toast.success(replyAll ? 'Reply sent to all recipients' : 'Reply sent', {
+        description: data.to === to
+          ? `Delivered to ${to}${cc.trim() ? ' + Cc' : ''}`
+          : `Delivered to ${data.to}`,
         duration: 3000,
       })
       setBody('')
+      setCc('')
       onOpenChange(false)
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1461,14 +1762,33 @@ function ReplyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Reply className="h-4 w-4 text-emerald-500" /> Reply to sender</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {replyAll
+              ? <><ReplyAll className="h-4 w-4 text-emerald-500" /> Reply to all</>
+              : <><Reply className="h-4 w-4 text-emerald-500" /> Reply to sender</>}
+          </DialogTitle>
           <DialogDescription>
-            Your reply will be sent via real SMTP from your inbox to <span className="font-mono font-medium">{to}</span>.
+            {replyAll
+              ? <>Your reply will be sent via real SMTP to <span className="font-mono font-medium">{to}</span> and any Cc recipients you add below.</>
+              : <>Your reply will be sent via real SMTP from your inbox to <span className="font-mono font-medium">{to}</span>.</>}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
             <div className="flex gap-2"><span className="text-muted-foreground w-12 shrink-0">To:</span><span className="font-mono break-all">{toName} &lt;{to}&gt;</span></div>
+            {replyAll && (
+              <div className="flex gap-2">
+                <span className="text-muted-foreground w-12 shrink-0">Cc:</span>
+                <Input
+                  type="text"
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder="comma-separated recipients (optional)"
+                  className="h-7 text-xs font-mono"
+                  aria-label="Cc recipients"
+                />
+              </div>
+            )}
             <div className="flex gap-2"><span className="text-muted-foreground w-12 shrink-0">Subject:</span><span className="font-medium">{replySubject}</span></div>
           </div>
           <textarea
@@ -1485,12 +1805,12 @@ function ReplyDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            onClick={() => mutation.mutate(body)}
+            onClick={() => mutation.mutate({ text: body, cc: replyAll ? cc.trim() : undefined })}
             disabled={!body.trim() || mutation.isPending}
             className="gap-2"
           >
             {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Send reply
+            {replyAll ? 'Send reply to all' : 'Send reply'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1586,7 +1906,14 @@ function ForwardDialog({
 }
 
 // ---------- Thread Group (collapsible conversation) ----------
-function ThreadGroup({ thread }: { thread: MessageSummary[] }) {
+function ThreadGroup({
+  thread, isMuted, onMute, onUnmute,
+}: {
+  thread: MessageSummary[]
+  isMuted?: boolean
+  onMute?: () => void
+  onUnmute?: () => void
+}) {
   const [expanded, setExpanded] = useState(thread.length === 1)
   const latest = thread[thread.length - 1]
   const unreadCount = thread.filter(m => !m.isRead).length
@@ -1633,43 +1960,79 @@ function ThreadGroup({ thread }: { thread: MessageSummary[] }) {
   const cat = CATEGORY_META[latest.category] || CATEGORY_META.general
 
   return (
-    <div className="bg-card">
+    <div className={cn('bg-card', isMuted && 'opacity-60')}>
       {/* Thread header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left p-3 flex items-start gap-3 hover:bg-accent/30 transition-colors"
-      >
-        <div className="relative shrink-0">
-          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
-            {latest.fromName[0]?.toUpperCase() || '?'}
+      <div className="relative group">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-left p-3 flex items-start gap-3 hover:bg-accent/30 transition-colors"
+        >
+          <div className="relative shrink-0">
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-cyan-500 text-white font-bold text-sm">
+              {latest.fromName[0]?.toUpperCase() || '?'}
+            </div>
+            {unreadCount > 0 && !isMuted && (
+              <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 grid place-items-center rounded-full bg-emerald-500 text-[9px] font-bold text-white px-1 ring-2 ring-background">
+                {unreadCount}
+              </span>
+            )}
+            {isMuted && (
+              <span className="absolute -top-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-zinc-400 text-white ring-2 ring-background" title="Conversation muted">
+                <BellOff className="h-2.5 w-2.5" />
+              </span>
+            )}
           </div>
-          {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 grid place-items-center rounded-full bg-emerald-500 text-[9px] font-bold text-white px-1 ring-2 ring-background">
-              {unreadCount}
-            </span>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-bold truncate min-w-0">{latest.fromName}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isMuted && (
+                  <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-500/10 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                    <BellOff className="h-2.5 w-2.5" /> Muted
+                  </span>
+                )}
+                {thread.length > 1 && (
+                  <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                    {thread.length} messages
+                  </span>
+                )}
+                <span className="text-[11px] text-muted-foreground tabular-nums">{formatTime(latest.receivedAt)}</span>
+              </div>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+              <span className="text-sm truncate flex-1 min-w-0 font-semibold">
+                {latest.subject.replace(/^(re:\s*|fwd:\s*)+/i, '')}
+              </span>
+              <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground truncate">{latest.previewText}</p>
+          </div>
+        </button>
+        {/* G7: Mute / Unmute thread action — top-right of the thread header.
+            Visible on hover (desktop) and always visible on mobile via
+            group-hover fallback to opacity. Tap to toggle the mute state. */}
+        <div className="absolute top-2 right-2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+          {isMuted ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onUnmute?.() }}
+              className="grid h-7 w-7 place-items-center rounded-md bg-background/90 border border-border/60 hover:bg-emerald-500/10 text-emerald-600"
+              title="Unmute conversation"
+              aria-label="Unmute conversation"
+            >
+              <Bell className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onMute?.() }}
+              className="grid h-7 w-7 place-items-center rounded-md bg-background/90 border border-border/60 hover:bg-accent text-muted-foreground"
+              title="Mute conversation"
+              aria-label="Mute conversation"
+            >
+              <BellOff className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-bold truncate min-w-0">{latest.fromName}</span>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {thread.length > 1 && (
-                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-                  {thread.length} messages
-                </span>
-              )}
-              <span className="text-[11px] text-muted-foreground tabular-nums">{formatTime(latest.receivedAt)}</span>
-            </div>
-          </div>
-          <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-            <span className="text-sm truncate flex-1 min-w-0 font-semibold">
-              {latest.subject.replace(/^(re:\s*|fwd:\s*)+/i, '')}
-            </span>
-            <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', expanded && 'rotate-90')} />
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground truncate">{latest.previewText}</p>
-        </div>
-      </button>
+      </div>
 
       {/* Expanded thread messages */}
       <AnimatePresence initial={false}>
