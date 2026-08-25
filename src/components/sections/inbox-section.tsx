@@ -36,6 +36,7 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
   const removeInbox = useAppStore((s) => s.removeInbox)
   const updateInbox = useAppStore((s) => s.updateInbox)
   const setActiveInboxId = useAppStore((s) => s.setActiveInboxId)
+  const setInboxMirror = useAppStore((s) => s.setInboxMirror)
   const setActiveSection = useAppStore((s) => s.setActiveSection)
   const setMessages = useAppStore((s) => s.setMessages)
   const queryClient = useQueryClient()
@@ -71,6 +72,12 @@ export function InboxSection({ triggerGenerate }: { triggerGenerate: (email: str
     onSuccess: (data) => {
       upsertInbox(data.inbox)
       setActiveInboxId(data.inbox.id)
+      // Store inbox mirror in localStorage for persistence across tab close/reopen
+      setInboxMirror({
+        id: data.inbox.id,
+        email: data.inbox.email,
+        expiresAt: data.inbox.expiresAt,
+      })
       setMessages([])
       queryClient.invalidateQueries({ queryKey: ['inboxes'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })

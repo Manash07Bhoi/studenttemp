@@ -22,6 +22,11 @@ interface AppState {
   activeInboxId: string | null
   setActiveInboxId: (id: string | null) => void
 
+  // inbox mirror for persistence (BUGFIX-INBOX-PERSISTENCE.md RC1/RC2)
+  // Stored in localStorage (not sessionStorage) — survives tab close/reopen
+  inboxMirror: { id: string; email: string; expiresAt: string } | null
+  setInboxMirror: (m: { id: string; email: string; expiresAt: string } | null) => void
+
   // inboxes cache
   inboxes: Inbox[]
   setInboxes: (list: Inbox[]) => void
@@ -101,7 +106,24 @@ export const useAppStore = create<AppState>((set) => ({
   setDrawerOpen: (v) => set({ drawerOpen: v }),
 
   activeInboxId: null,
-  setActiveInboxId: (id) => set({ activeInboxId: id, openMessageId: null, messages: [], selectedMessageId: null }),
+  setActiveInboxId: (id) => {
+    if (typeof window !== 'undefined' && id) {
+      localStorage.setItem('studenttemp_active_inbox', id)
+    } else if (typeof window !== 'undefined' && !id) {
+      localStorage.removeItem('studenttemp_active_inbox')
+      localStorage.removeItem('studenttemp_inbox_mirror')
+    }
+    set({ activeInboxId: id, openMessageId: null, messages: [], selectedMessageId: null })
+  },
+
+  inboxMirror: null,
+  setInboxMirror: (m) => {
+    if (typeof window !== 'undefined') {
+      if (m) localStorage.setItem('studenttemp_inbox_mirror', JSON.stringify(m))
+      else localStorage.removeItem('studenttemp_inbox_mirror')
+    }
+    set({ inboxMirror: m })
+  },
 
   inboxes: [],
   setInboxes: (list) => set({ inboxes: list }),

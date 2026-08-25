@@ -229,6 +229,44 @@ export function useKeyboardShortcuts() {
           setGlobalSearchOpen(true)
           return
         }
+        // GAP G14: Additional Gmail-class keyboard shortcuts
+        case 's': {
+          // Star/unstar the currently selected message
+          if (activeSection === 'messages' && (selectedMessageId || openMessageId)) {
+            e.preventDefault()
+            const id = openMessageId || selectedMessageId
+            const msg = messages.find(m => m.id === id)
+            if (msg) {
+              window.dispatchEvent(new CustomEvent('studenttemp:toggle-star', { detail: { id } }))
+            }
+          }
+          return
+        }
+        case 'u': {
+          // Mark as unread and return to list
+          if (activeSection === 'messages' && openMessageId) {
+            e.preventDefault()
+            window.dispatchEvent(new CustomEvent('studenttemp:mark-unread', { detail: { id: openMessageId } }))
+            setOpenMessageId(null)
+          }
+          return
+        }
+        case '#': {
+          // Delete the currently open message
+          if (activeSection === 'messages' && openMessageId) {
+            e.preventDefault()
+            window.dispatchEvent(new CustomEvent('studenttemp:delete-message', { detail: { id: openMessageId } }))
+          }
+          return
+        }
+        case 'a': {
+          // Reply All (same as reply for temp mode, but keyboard shortcut exists)
+          if (activeSection === 'messages' && openMessageId) {
+            e.preventDefault()
+            window.dispatchEvent(new CustomEvent('studenttemp:reply-message', { detail: { id: openMessageId } }))
+          }
+          return
+        }
         default:
           return
       }
