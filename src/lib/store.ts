@@ -180,18 +180,5 @@ export const useAppStore = create<AppState>((set) => ({
   setGlobalSearchOpen: (v) => set({ globalSearchOpen: v }),
 }))
 
-// Hydrate persisted UI flags on the client after mount (avoids SSR hydration mismatch).
-if (typeof window !== 'undefined') {
-  const appLock = readLS(LS.appLock)
-  const onboarding = readLS(LS.onboarding)
-  const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr' | 'or') || 'en'
-  const pushDismissed = readLS('studenttemp_push_dismissed')
-  useAppStore.setState({
-    appLockEnabled: appLock,
-    hasSeenOnboarding: onboarding,
-    locale,
-    pushPromptDismissed: pushDismissed,
-  })
-  // Set <html lang> and dir attributes for accessibility + RTL
-  document.documentElement.lang = locale
-}
+// NOTE: localStorage hydration is done in a useEffect inside AppShell
+// to avoid SSR hydration mismatch (server renders defaults, client updates after mount)

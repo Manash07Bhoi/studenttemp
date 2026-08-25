@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Shield, X, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAppStore } from '@/lib/store'
 
 const LS_KEY = 'studenttemp_dpdp_consented'
 
@@ -14,15 +15,27 @@ const LS_KEY = 'studenttemp_dpdp_consented'
  */
 export function DpdpConsentBanner() {
   const [show, setShow] = useState(false)
+  const hasSeenOnboarding = useAppStore((s) => s.hasSeenOnboarding)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!localStorage.getItem(LS_KEY)) {
-      // Show after a short delay so onboarding can finish first
-      const t = setTimeout(() => setShow(true), 2000)
+      // Wait until onboarding is dismissed before showing
+      if (!hasSeenOnboarding) {
+        // Poll until onboarding is done
+        const interval = setInterval(() => {
+          if (useAppStore.getState().hasSeenOnboarding) {
+            clearInterval(interval)
+            setTimeout(() => setShow(true), 1000)
+          }
+        }, 500)
+        return () => clearInterval(interval)
+      }
+      // Onboarding already seen — show after short delay
+      const t = setTimeout(() => setShow(true), 1500)
       return () => clearTimeout(t)
     }
-  }, [])
+  }, [hasSeenOnboarding])
 
   const handleAccept = () => {
     localStorage.setItem(LS_KEY, '1')

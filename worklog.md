@@ -1483,3 +1483,51 @@ Remaining items requiring external infrastructure:
 4. Cross-browser testing — requires multiple browsers
 5. Load testing — requires k6/Artillery
 6. Lighthouse audit — requires Chrome DevTools
+
+---
+Task ID: REVIEW-ITERATION-2
+Agent: main (Z.ai Code) — review & iteration
+Task: Review codebase, troubleshoot issues, fix bugs, create scheduled cron job.
+
+Work Log:
+- Verified all services running clean: Next.js (3000), SMTP (2525), Socket.IO (3003), gateway (81)
+- `bun run lint` → 0 errors
+- Performed comprehensive QA via agent-browser with fresh storage (cleared localStorage, service worker, caches)
+
+**Bugs found and fixed:**
+
+1. **CRITICAL: React hydration mismatch error**
+   - **Problem**: The Zustand store called `useAppStore.setState()` at module load time (outside React's lifecycle), reading from localStorage before React hydrated. This caused server-rendered HTML to not match client properties — React showed a hydration error in the console.
+   - **Root cause**: `src/lib/store.ts` had module-level code that ran `useAppStore.setState({ appLockEnabled, hasSeenOnboarding, locale, pushPromptDismissed })` immediately when the JS bundle loaded on the client, before React's hydration phase. The server rendered with defaults (`false`, `false`, `'en'`, `false`), but the client store already had different values from localStorage.
+   - **Fix**: Removed the module-level `useAppStore.setState()` call. Added a `useEffect` in `AppShell` that hydrates from localStorage AFTER React mounts (post-hydration). This ensures SSR and first client render match, then the state updates after mount.
+   - **Verified**: Console shows zero hydration errors after the fix ✓
+
+2. **UX: DPDP consent banner appearing on top of onboarding overlay**
+   - **Problem**: The DPDP banner had a 2-second timeout, but the onboarding overlay could still be open at that point. The banner would appear on top of the onboarding, blocking the "Skip" button.
+   - **Fix**: Updated `DpdpConsentBanner` to poll `useAppStore.getState().hasSeenOnboarding` every 500ms. The banner only shows 1 second AFTER onboarding is dismissed. If onboarding was already seen, it shows after 1.5 seconds.
+   - **Verified**: Banner correctly waits for onboarding to finish ✓
+
+3. **Created scheduled cron job for ongoing review**
+   - Created cron job (job_id 335832) with `webDevReview` kind
+   - Runs every 15 minutes (cron: `0 */15 * * * ?`, timezone: Asia/Calcutta)
+   - Triggers an agent to: review worklog, test via agent-browser, fix bugs, add features, update worklog
+
+**QA verified (all passing):**
+- Onboarding → skip → DPDP banner → dismiss → generate inbox → all clean ✓
+- Real SMTP email sent → delivered in real-time via Socket.IO ✓
+- All 7 nav sections clickable and rendering ✓
+- Message reader opens with Star/Reply/Delete/More buttons ✓
+- Settings page with Contact form visible ✓
+- About page with "Developed by Roshan" credit ✓
+- Dark mode toggle working ✓
+- Console: zero errors, zero warnings (excluding oklch CSS warnings) ✓
+- `bun run lint` → 0 errors ✓
+
+Stage Summary:
+- `bun run lint` → 0 errors, 0 warnings
+- All services running clean
+- Hydration mismatch error: FIXED ✓
+- DPDP banner timing conflict: FIXED ✓
+- Scheduled cron job created (job_id 335832) ✓
+- Full QA flow verified end-to-end with real SMTP delivery ✓
+- No console errors ✓

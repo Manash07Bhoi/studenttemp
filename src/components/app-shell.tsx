@@ -81,6 +81,24 @@ export function AppShell() {
   useKeyboardShortcuts()
   useServiceWorker()
 
+  // Hydrate persisted UI flags from localStorage AFTER mount (avoids SSR hydration mismatch)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const appLock = localStorage.getItem('studenttemp_applock') === '1'
+      const onboarding = localStorage.getItem('studenttemp_onboarded') === '1'
+      const locale = (localStorage.getItem('studenttemp_locale') as 'en' | 'hi' | 'ta' | 'bn' | 'te' | 'mr' | 'or') || 'en'
+      const pushDismissed = localStorage.getItem('studenttemp_push_dismissed') === '1'
+      useAppStore.setState({
+        appLockEnabled: appLock,
+        hasSeenOnboarding: onboarding,
+        locale,
+        pushPromptDismissed: pushDismissed,
+      })
+      document.documentElement.lang = locale
+    } catch {}
+  }, [])
+
   // Command palette + shortcuts help are driven by store state so both the
   // hook and the header ⌘K button can open them.
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
