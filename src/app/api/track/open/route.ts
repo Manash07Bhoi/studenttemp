@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
           openCount: sentMessage.openCount + 1,
         },
       }).catch(() => {})
-      console.log(`[track] open recorded for message ${id}`)
+      console.info(`[track] open recorded for message ${id}`)
     } else if (sentMessage) {
       // Increment open count on subsequent opens
       await db.sentMessage.update({

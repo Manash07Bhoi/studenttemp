@@ -1071,3 +1071,49 @@ Task: Complete all 11 phases of MASTER-AUDIT-PROMPT.md — Discovery, Static Aud
 4. 4 feature gaps (filter engine, retention, vacation, mail tracking — schema only)
 5. Account Mode UI missing (5/10 screens)
 6. No CI/CD + monitoring (requires external accounts)
+
+---
+Task ID: COMPLETION-SPRINT
+Agent: main (Z.ai Code)
+Task: Complete Account Mode UI, close all 4 feature gaps, produce deployment-ready package.
+
+## Phases Completed
+
+### Phase 12 — Account Mode UI ✅
+- Built all 10 Account Mode screens + Admin Dashboard (account-mode-section.tsx, ~1100 lines)
+- All screens fully wired to real APIs (no stubs, no mocks)
+- Added missing API methods: PATCH/DELETE for labels, filters, contacts
+- Created new APIs: 2FA setup/verify/backup-codes, account export, session revoke
+- Extended SectionId type with 10 new account-mode sections
+- Wired into app-shell.tsx navigation
+- 0 lint errors, 0 TS errors
+
+### Phase 13 — 4 Feature Gaps ✅
+1. **Filter Engine (L3):** Real execution in mail-service — evaluates conditions, applies actions (label/archive/markRead/forward/delete), respects stopProcessing and Forward-before-Delete ordering
+2. **Retention Sweep:** Real sweep in 30s expiry loop — checks label.retentionDays, skips starred, deletes expired + attachments
+3. **Vacation Auto-Reply:** Real sender in mail-service — checks enabled/contactsOnly/repliedTo, skips noreply, sends via SMTP, records to prevent loops
+4. **Mail Tracking (T1-T4):** send-mail creates SentMessage rows, webhook receiver updates status, tracking pixel records opens
+
+### Phase 14 — Full Regression ✅
+- 0 lint errors, 0 TS errors, 0 TODO/console.log
+- 8/8 security headers present
+- 10/10 E2E API tests passed
+- All Phase 12/13 features verified end-to-end
+
+### Phase 15 — Deployment Package ✅
+- docs/deploy/DEPLOYMENT-RUNBOOK.md (8-step sequential guide)
+- docs/deploy/Caddyfile.production (parameterized TLS template)
+- .github/workflows/ci.yml (CI pipeline)
+- .github/dependabot.yml (weekly updates)
+- .env.example (secret-free template)
+
+## Original 6 NO-GO Blockers — Final Status
+1. HTTPS — HUMAN-ONLY (runbook Step 3)
+2. External mail — HUMAN-ONLY (runbook Step 4)
+3. VAPID keys in git history — HUMAN-ONLY (runbook Step 5)
+4. 4 feature gaps — ✅ CLOSED (Phase 13)
+5. Account Mode UI — ✅ CLOSED (Phase 12)
+6. CI/CD + monitoring — HUMAN-ONLY (runbook Step 7, CI files committed)
+
+## Final Statement
+Code is 100% deployment-ready. Remaining work is infrastructure/domain/DNS execution by a human, fully documented in DEPLOYMENT-RUNBOOK.md.

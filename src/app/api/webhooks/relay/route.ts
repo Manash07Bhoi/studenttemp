@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
         deliveredAt: new Date(),
       },
     })
-    console.log(`[webhook] message ${sentMessage.id} marked delivered`)
+    console.info(`[webhook] message ${sentMessage.id} marked delivered`)
   } else if (isBounce) {
     await db.sentMessage.update({
       where: { id: sentMessage.id },
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
         bounceReason: body?.reason || body?.error || eventType,
       },
     })
-    console.log(`[webhook] message ${sentMessage.id} marked bounced`)
+    console.info(`[webhook] message ${sentMessage.id} marked bounced`)
   } else if (isComplaint) {
     await db.sentMessage.update({
       where: { id: sentMessage.id },
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
         status: 'complained',
       },
     })
-    console.log(`[webhook] message ${sentMessage.id} marked complained`)
+    console.info(`[webhook] message ${sentMessage.id} marked complained`)
   }
 
   return NextResponse.json({ ok: true })

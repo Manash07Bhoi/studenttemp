@@ -1,0 +1,32 @@
+# ============================================================
+# StudentTemp — Production Caddyfile Template
+# ============================================================
+# Replace {{DOMAIN}} with your actual domain (e.g., studenttemp.com)
+# Caddy auto-provisions Let's Encrypt certificates — no manual cert management.
+# ============================================================
+
+{{DOMAIN}} {
+	# Reverse proxy to Next.js
+	reverse_proxy localhost:3000 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+
+	# WebSocket upgrade for Socket.IO (via XTransformPort query param)
+	@socketio query XTransformPort=*
+	handle @socketio {
+		reverse_proxy localhost:{query.XTransformPort} {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+}
+
+# HTTP → HTTPS redirect (automatic, but explicit for clarity)
+http://{{DOMAIN}} {
+	redir https://{{DOMAIN}}{uri} permanent
+}
