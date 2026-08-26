@@ -93,10 +93,9 @@ const nextConfig: NextConfig = {
   },
   // Compress responses
   compress: true,
-  // Power features for PWA
-  experimental: {
-    optimizePackageImports: ['lucide-react', 'framer-motion', 'recharts'],
-  },
+  // Disable optimizePackageImports — it increases memory usage during compilation
+  // and the sandbox has limited RAM (3.9GB). The tree-shaking still works at build time.
+  experimental: {},
 };
 
 export default nextConfig;
