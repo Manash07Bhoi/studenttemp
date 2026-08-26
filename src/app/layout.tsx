@@ -83,13 +83,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Favicon */}
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         {/* Preconnect to font origin for faster font loading */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        {/* DNS prefetch for the Socket.IO gateway — served via Caddy on HTTPS.
-            We point at the same-origin HTTPS URL so the browser reuses the TLS
-            session instead of opening a plain-HTTP socket (which would be a
-            mixed-content violation). */}
+        {/* DNS prefetch for same-origin resources */}
         <link rel="dns-prefetch" href="/" />
         <link rel="preconnect" href="/" crossOrigin="anonymous" />
       </head>

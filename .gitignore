@@ -56,3 +56,10 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Non-project files
+cookies.txt
+tool-results/
+agent-ctx/
+download/
+.env.production
