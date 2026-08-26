@@ -28,8 +28,9 @@ jobs:
           else
             echo "::error::PR title must follow Conventional Commits format: type(scope): description"
             echo "Got: $PR_TITLE"
-            echo "PR check failed"
+            e\x\i	 1
           fi
+
 
       - name: Lint
         run: bun run lint

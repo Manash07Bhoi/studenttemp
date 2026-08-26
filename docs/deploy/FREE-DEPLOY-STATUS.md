@@ -21,6 +21,6 @@
 
 ## Production Status
 
-**PRODUCTION READY — VERIFIED**
+**NOT PRODUCTION READY**
 
-*Note: Fully verified functionality against the live URLs once this commit is pushed and the subsequent automatic deployment finishes seeding the database.*
+*Note: Render GitHub App authorization is missing for the private repository. Deployment cannot be completed until the repository is authorized.*
