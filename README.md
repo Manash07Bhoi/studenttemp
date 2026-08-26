@@ -123,6 +123,8 @@ See `docs/HTTPS-AUDIT.md` for TLS configuration and `docs/decisions/OPEN-QUESTIO
 
 **Developed by Roshan** — Full-stack developer
 
+**Contributor:** ManashBhoi ([@Manash07Bhoi](https://github.com/Manash07Bhoi))
+
 Built with Next.js, Prisma, Socket.IO, Tailwind CSS, and shadcn/ui.
 
 ## License
