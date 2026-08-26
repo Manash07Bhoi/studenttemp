@@ -12,6 +12,7 @@ services:
     runtime: node
     plan: free
     buildCommand: bun install && bun run build
+    preDeployCommand: bun run prisma migrate deploy && bun run prisma/seed.ts
     startCommand: bun run start
     envVars:
       - key: DATABASE_URL

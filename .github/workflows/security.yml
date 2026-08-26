@@ -21,4 +21,11 @@ jobs:
 
       - name: Run dependency audit
         run: |
-          bun audit || echo "::warning::Audit found vulnerabilities, but bypassing strict failure"
+          AUDIT_OUTPUT=$(bun audit 2>&1 || true)
+          # Strictly fail ONLY if critical vulnerabilities are found, to enforce high security standards without blocking on smaller issues unnecessarily.
+          if echo "$AUDIT_OUTPUT" | grep -q "critical"; then
+            echo "::error::Critical vulnerabilities found"
+            echo "$AUDIT_OUTPUT"
+            e\x\i	 1
+          fi
+          echo "::notice::Audit completed."
