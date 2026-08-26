@@ -27,6 +27,12 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // Allow the preview panel and published URL to load dev resources
+  allowedDevOrigins: [
+    'preview-chat-70cf3ad2-cfaa-439a-83aa-f50b38e6e22a.space-z.ai',
+    '*.space-z.ai',
+    'studentemp.space-z.ai',
+  ],
   // Security + performance headers.
   // NOTE: HSTS is set here as a secondary signal. The primary HSTS comes
   // from Caddy's TLS frontend (so it is always present on HTTPS responses,
