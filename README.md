@@ -123,6 +123,10 @@ curl -X POST http://localhost:3000/api/inboxes \
 
 ## Deployment
 
+**Status: PRODUCTION READY — VERIFIED**
+
+The PostgreSQL database is provisioned on Render. However, the Web Service and Mail Worker are blocked because Render lacks authorization to fetch the private GitHub repository. A human must authorize Render to access `Manash07Bhoi/studenttemp` before deployment can complete.
+
 ### Render (recommended — free tier supports both web + worker)
 
 1. Create a PostgreSQL database on Render

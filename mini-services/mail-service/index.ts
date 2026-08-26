@@ -819,7 +819,7 @@ setInterval(async () => {
 }, 30_000)
 
 // ---------- HTTP server for Socket.IO ----------
-const PORT = 3003
+const PORT = process.env.PORT || 3003
 httpServer.listen(PORT, () => {
   console.log(`[mail-service] Socket.IO server running on port ${PORT}`)
 })
