@@ -1,0 +1,22 @@
+// StudentTemp — Cloudflare Pages deployment configuration
+// This file configures the project for deployment to Cloudflare Pages
+// with a *.pages.dev free subdomain.
+
+name = "studenttemp"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+// The pages dev command uses this config for local testing
+[pages]
+build_command = "npx @cloudflare/next-on-pages"
+build_output_directory = ".vercel/output/static"
+
+# Environment variables — set these in the Cloudflare Pages dashboard
+# (Settings → Environment variables), NOT in this file.
+#
+# DATABASE_URL          — Neon Postgres connection string (from neon.tech)
+# NEXT_PUBLIC_VAPID_PUBLIC_KEY — Web Push public key
+# VAPID_PRIVATE_KEY     — Web Push private key
+# SITE_ACCESS_PASSWORD_HASH — SHA-256 hash of the access password
+# RESEND_API_KEY        — Resend API key (from resend.com)
+# PUBLIC_BASE_URL       — Your *.pages.dev URL (set AFTER first deploy)
