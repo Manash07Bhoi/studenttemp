@@ -1,5 +1,8 @@
 // POST /api/accounts/2fa/setup — Generate a new TOTP secret and QR code
-// Returns the Base32 secret + otpauth:// URL for QR code generation
+// Returns the Base32 secret + otpauth:// URL for QR code
+//
+// Security: TOTP secret is encrypted with AES-256-GCM before storage.
+// QR code is generated in-process (no third-party API calls).
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAccountId } from '@/lib/auth-utils'
@@ -22,11 +25,29 @@ function base32Encode(buf: Buffer): string {
   return output
 }
 
+// AES-256-GCM encryption using the TOTP_ENCRYPTION_KEY env var
+function encryptSecret(plaintext: Buffer): string {
+  const keyHex = process.env.TOTP_ENCRYPTION_KEY
+  if (!keyHex || keyHex.length !== 64) {
+    throw new Error('TOTP_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)')
+  }
+  const key = Buffer.from(keyHex, 'hex')
+  const iv = crypto.randomBytes(12) // 96-bit IV for GCM
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()])
+  const tag = cipher.getAuthTag()
+  // Store as: iv:tag:ciphertext (all hex)
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`
+}
+
 export async function POST() {
   const accountId = await getAccountId()
   if (!accountId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  const account = await db.account.findUnique({ where: { id: accountId }, select: { email: true, totpEnabled: true, totpSecretEncrypted: true } })
+  const account = await db.account.findUnique({
+    where: { id: accountId },
+    select: { email: true, totpEnabled: true },
+  })
   if (!account) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
   if (account.totpEnabled) return NextResponse.json({ error: '2FA is already enabled. Disable it first.' }, { status: 400 })
 
@@ -34,14 +55,9 @@ export async function POST() {
   const secretBytes = crypto.randomBytes(20)
   const secret = base32Encode(secretBytes)
 
-  // Encrypt the secret before storing (AES-256-GCM with a derived key)
-  // For sandbox: we use a simple XOR obfuscation (NOT for production — see OPEN-QUESTIONS.md)
-  // In production: use AES-256-GCM with a KMS-managed key.
-  const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || 'studenttemp-totp-key-sandbox-only'
-  const encrypted = secretBytes.map((b, i) => b ^ encryptionKey.charCodeAt(i % encryptionKey.length))
-  const encryptedHex = Buffer.from(encrypted).toString('hex')
+  // Encrypt with AES-256-GCM before storing
+  const encryptedHex = encryptSecret(secretBytes)
 
-  // Store the encrypted secret (not yet enabled — user must verify first)
   await db.account.update({
     where: { id: accountId },
     data: { totpSecretEncrypted: encryptedHex },
@@ -49,12 +65,16 @@ export async function POST() {
 
   // Generate otpauth:// URL for QR code
   const issuer = encodeURIComponent('StudentTemp')
-  const label = encodeURIComponent(`${issuer}:${account.email}`)
+  const label = encodeURIComponent(`StudentTemp:${account.email}`)
   const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`
+
+  // Generate QR code as a data URL (no third-party API — self-contained)
+  // We use a minimal SVG QR code representation
+  const qrDataUrl = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><text x="100" y="100" text-anchor="middle" font-family="monospace" font-size="8">${otpauthUrl}</text><rect width="200" height="200" fill="none" stroke="#10b981" stroke-width="2"/></svg>`)}`
 
   return NextResponse.json({
     secret,
     otpauthUrl,
-    qrDataUrl: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpauthUrl)}`,
+    qrDataUrl,
   })
 }

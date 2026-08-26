@@ -1,0 +1,48 @@
+name: Performance Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bundle-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Build and measure bundle
+        run: |
+          bun run build
+          NEXT_SIZE=$(du -sh .next 2>/dev/null | cut -f1)
+          STATIC_SIZE=$(du -sh .next/static 2>/dev/null | cut -f1)
+          STANDALONE_SIZE=$(du -sh .next/standalone 2>/dev/null | cut -f1)
+          echo "NEXT_SIZE=$NEXT_SIZE" >> $GITHUB_ENV
+          echo "STATIC_SIZE=$STATIC_SIZE" >> $GITHUB_ENV
+          echo "STANDALONE_SIZE=$STANDALONE_SIZE" >> $GITHUB_ENV
+      - name: Check bundle size limits
+        run: |
+          # Warn if .next/static is over 10MB
+          STATIC_KB=$(du -k .next/static 2>/dev/null | cut -f1)
+          if [ "$STATIC_KB" -gt 10240 ]; then
+            echo "::warning::Static bundle is ${STATIC_KB}KB (over 10MB limit). Consider code-splitting."
+          else
+            echo "::notice::Static bundle is ${STATIC_KB}KB (within 10MB limit)"
+          fi
+      - name: Report bundle sizes
+        run: |
+          echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| .next/total | ${{ env.NEXT_SIZE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| .next/static | ${{ env.STATIC_SIZE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| .next/standalone | ${{ env.STANDALONE_SIZE }} |" >> $GITHUB_STEP_SUMMARY

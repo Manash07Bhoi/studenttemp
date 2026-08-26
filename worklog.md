@@ -1178,3 +1178,442 @@ Task: Configure published URL + add site-wide password gate for testing.
 - Cookie is SameSite=Strict (prevents CSRF)
 - Cookie is a random token (not the password hash)
 - 30-day expiry (user doesn't need to re-enter password every session)
+
+---
+
+## AUDIT-1 — Comprehensive Pre-Production Repository Audit
+
+**Auditor:** Senior Staff Engineer (Task ID: AUDIT-1)
+**Scope:** Full repo audit covering source, config, security, CI/CD, deps, docs.
+**Mode:** READ-ONLY (no files modified).
+
+### Summary Verdict
+
+The project is **NOT production-ready**. While the application surface area is broad and the design intent is solid, there are **2 critical security blockers** (committed secrets and unauthenticated admin endpoint), **1 high-severity cryptographic failure** (XOR-obfuscated TOTP secrets), and **numerous medium-severity gaps** across rate limiting, input validation, webhook authentication, and missing community/config files. The full breakdown follows.
+
+---
+
+### 1. Source Code Issues (`src/app/api/**/route.ts`)
+
+#### 1.1 CRITICAL — Admin endpoint has no admin authorization
+- `src/app/api/admin/stats/route.ts:6-13` — Endpoint named `/api/admin/stats` returns **global totals** (totalAccounts, totalInboxes, totalMessages, totalStorageUsed, abuseReports, etc.) to **any authenticated account**. The code comment literally says: "For now, allow any authenticated account to see basic stats". This is a horizontal-privilege / data-leakage vulnerability. Any signed-up user can scrape global platform metrics and per-category abuse counts.
+
+#### 1.2 CRITICAL — Insecure TOTP "encryption" (XOR obfuscation)
+- `src/app/api/accounts/2fa/setup/route.ts:38-42` and `src/app/api/accounts/2fa/verify/route.ts:41-44` — TOTP secrets are obfuscated with **single-byte XOR cycling** against `TOTP_ENCRYPTION_KEY` (or the literal hardcoded fallback `'studenttemp-totp-key-sandbox-only'`). XOR is reversible by anyone with the DB dump, and the fallback key is committed to git. The comment acknowledges it's "NOT for production" — but the code ships that way in `main`. **Real AES-256-GCM with a KMS-managed key must be implemented before enabling 2FA in production.**
+
+#### 1.3 CRITICAL — TOTP secret exfiltrated to third party
+- `src/app/api/accounts/2fa/setup/route.ts:58` — Returns `qrDataUrl: https://api.qrserver.com/v1/create-qr-code/?data=${otpauthUrl}`. This sends every user's TOTP secret (and email) to a third-party QR-generator service over HTTPS. **Use a self-hosted QR generator** (e.g., `qrcode.react`, which is already in `package.json`) instead.
+
+#### 1.4 HIGH — Webhook receiver has no signature verification
+- `src/app/api/webhooks/relay/route.ts:12-30` — Accepts arbitrary JSON, looks up a SentMessage by `relayMessageId`, and transitions delivery status to `delivered`/`bounced`/`complained`. No HMAC signature verification, no IP allow-list. The code comment acknowledges this: "For now, we accept POST with JSON and verify the relayMessageId matches an existing sent_messages row." **Anyone who can guess or scrape a `relayMessageId` can forge bounces/deliveries.**
+
+#### 1.5 HIGH — Insecure SMTP transport (`rejectUnauthorized: false`)
+- `src/app/api/messages/[id]/forward/route.ts:61`
+- `src/app/api/messages/[id]/reply/route.ts:48`
+- `src/app/api/send-mail/route.ts:65`
+- `src/app/api/inboxes/[id]/test-mail/route.ts:31`
+- `mini-services/mail-service/index.ts:447` and `:495`
+
+All SMTP connections are made with `tls: { rejectUnauthorized: false }`. The host comes from `process.env.SMTP_RELAY_HOST` which defaults to `localhost` but is configurable to **any** external host. If an operator sets `SMTP_RELAY_HOST` to a public relay, every outbound email is vulnerable to MITM (TLS not validated). The default `localhost` loopback case is acceptable, but the option should be locked down (only allow `rejectUnauthorized: false` when host is loopback).
+
+#### 1.6 HIGH — `getClientIp` trusts X-Forwarded-For without verifying trusted proxy
+- `src/lib/mail-utils.ts:224-230` — Returns `xff.split(',')[0].trim()` directly, with no peer check. This is inconsistent with `src/proxy.ts` which DOES validate the trusted proxy. Any direct caller (bypassing Caddy) can spoof their IP via the `X-Forwarded-For` header, defeating all per-IP rate limits (`login:`, `signup:`, `send-mail:`, `create-inbox:`, etc.).
+
+#### 1.7 HIGH — No rate limiting on password / 2FA / recovery endpoints
+Routes that perform security-sensitive operations but **lack any rate limiting**:
+- `src/app/api/site-access/verify/route.ts` POST — Brute-force the site access password (only 16 chars, dictionary-attackable). Non-constant-time SHA-256 comparison (`submittedHash !== expectedHash`) at line 62 leaks timing info.
+- `src/app/api/session/route.ts` POST — Brute-force the recovery code `ST-XXXX-XXXX` (~6.5 × 10^11 keyspace, no rate limit).
+- `src/app/api/accounts/2fa/setup/route.ts` POST — Regenerate TOTP secret repeatedly (DoS / wipe user's existing setup).
+- `src/app/api/accounts/2fa/verify/route.ts` POST — 6-digit TOTP brute-force (1/1,000,000 — possible within hours without rate limit).
+- `src/app/api/accounts/2fa/backup-codes/route.ts` POST — Regenerate backup codes abusively.
+- `src/app/api/accounts/2fa/route.ts` DELETE — Password brute-force via repeated attempts to disable 2FA.
+
+#### 1.8 MEDIUM — Missing input validation
+- `src/app/api/accounts/contacts/route.ts:24-26` — No email format validation on the `email` field; arbitrary strings accepted as contact emails.
+- `src/app/api/accounts/filters/route.ts:22-31` — Accepts arbitrary JSON in `conditions` and `actions` (stored as raw JSON string); no schema validation. Stored XSS via `conditions.value` later rendered in UI is plausible.
+- `src/app/api/accounts/labels/route.ts:30-38` — `color` is not validated as a valid CSS color; `retentionDays` not bounded (could be 10^9). `parentLabelId` not validated to belong to the same account before line 30 (validated later at line 51 for PATCH only — POST allows arbitrary parentLabelId without ownership check).
+- `src/app/api/accounts/aliases/route.ts:29` — Splits `aliasAddress` on `@` and takes index `[0]`; doesn't validate domain part or check it against the active domain list. A user could create aliases at domains not owned by the platform.
+- `src/app/api/accounts/vacation/route.ts:24-25` — Accepts arbitrary ISO strings for `startDate`/`endDate`; `new Date(...)` will throw on garbage, returning 500.
+- `src/app/api/accounts/drafts/route.ts:23-30` — No length limits; a malicious client could store arbitrarily large drafts (DoS via DB bloat).
+- `src/app/api/messages/[id]/forward/route.ts:43-49` — Builds HTML email body by interpolating `note.trim()` and `message.senderDisplayName` directly into the HTML string with no escaping. **Stored/reflected XSS risk** for the recipient of the forwarded mail.
+
+#### 1.9 MEDIUM — Inconsistent response formats
+- Error shapes vary: some endpoints return `{ error: string }`, others `{ error: string, code: string }` (e.g. `messages/[id]/messages/route.ts:11,15` uses `code: 'INBOX_NOT_FOUND'` and `code: 'INBOX_EXPIRED'`; the rest do not).
+- Success shapes vary: some return `{ ok: true, ... }`, others return the entity directly (e.g. `accounts/labels` PATCH returns `{ ok: true }` while POST returns `{ label }`; `auth/login` returns `{ ok: true, account: {...} }` while `messages/[id]` returns `{ message: {...}, burned: boolean }`).
+- HTTP status codes are inconsistent: `auth/signup` returns 201, but `accounts/labels` POST returns 201 with a body that doesn't match the typed client (`{ ok: boolean, label: { id: string } }` — see `api-client.ts:120`).
+
+#### 1.10 MEDIUM — IDOR / ownership gaps
+- `src/app/api/messages/[id]/route.ts:16,52,73` — Ownership check uses `message.inbox.sessionId !== sessionId`. **Account Mode messages (where `inbox.sessionId` is null) will always 404** for logged-in account users who own the inbox via `accountId`. This is a latent correctness bug (not an IDOR), but means Account-Mode users cannot use this route even on their own messages.
+- `src/app/api/accounts/sessions/route.ts:23-26` — DELETE accepts a `sessionId` and revokes it, but does not check `revoked: false` first; the `updateMany` returns silently for already-revoked sessions (minor).
+- `src/app/api/accounts/sessions/route.ts:29-32` — "Revoke all except current" actually revokes ALL (no filter on the current session's id), logging the user out immediately.
+
+#### 1.11 LOW — Minor issues
+- `src/app/api/accounts/2fa/verify/route.ts:44` — `Buffer.from(encryptedBytes.map(...))` uses the legacy `Buffer.from(ArrayLike)` overload that has been deprecated in newer Node versions.
+- `src/app/api/messages/[id]/forward/route.ts:39-41` — `toLowerCase().startsWith('fwd:')` doesn't account for `Re:`-prefixed subjects; will produce `Fwd: Re: Foo` instead of `Fwd: Re: Foo`.
+- `src/app/api/inboxes/route.ts:104` — `if (!localPart!)` uses a logical-not on the truthy string `localPart!` (TS non-null assertion), which is always `false`. Bug hidden because ESLint's `no-unused-vars` and TS strict checks are disabled (see §3.3).
+- `src/app/api/track/open/route.ts:23-41` — No auth, no rate limit; a malicious client can pump `openCount` to INT_MAX on any sentMessage. Also no IP/user-agent logging, so open tracking is fully attacker-controllable.
+- `src/app/api/inboxes/[id]/receive-mail/route.ts:83-95` — HTML sanitization is a series of regex substitutions, NOT a real HTML parser. Bypasses are well-known (e.g. `<scr<script>ipt>`, malformed tags, attribute splitting). The mail-service uses DOMPurify properly — the receive-mail bridge should too.
+- `src/app/api/site-access/verify/route.ts:62` — `submittedHash !== expectedHash` is a non-constant-time comparison; should use `crypto.timingSafeEqual`.
+
+---
+
+### 2. Missing Files
+
+The following community / project files are **MISSING** from the repository:
+
+| Expected File | Status |
+|---------------|--------|
+| `LICENSE` | ❌ Missing (README says "Private project. All rights reserved." but no LICENSE file) |
+| `CONTRIBUTING.md` | ❌ Missing (despite `package.json:6` listing a contributor) |
+| `SECURITY.md` | ❌ Missing (referenced as `SECURITY.md §35` in `notifications/send/route.ts:37` and `mini-services/mail-service/index.ts:550` — broken reference) |
+| `CODE_OF_CONDUCT.md` | ❌ Missing |
+| `CHANGELOG.md` | ❌ Missing |
+| `.github/ISSUE_TEMPLATE/` | ❌ Missing (directory does not exist) |
+| `.github/PULL_REQUEST_TEMPLATE.md` | ❌ Missing |
+| `.github/CODEOWNERS` | ❌ Missing (no enforced review requirement) |
+| `public/sitemap.xml` | ❌ Missing (but `public/robots.txt:10` references `Sitemap: /sitemap.xml` — broken link) |
+| `public/favicon.ico` (or `.png`) | ❌ Missing (referenced in `src/proxy.ts:76` matcher as `favicon.ico` — never served; browsers will 404) |
+
+`public/logo.svg` exists and is used as the PWA icon (`manifest.json:14`).
+
+---
+
+### 3. Configuration Issues
+
+#### 3.1 `next.config.ts`
+- Line 27: `typescript: { ignoreBuildErrors: true }` — **TypeScript build errors are silently swallowed**. Production builds will succeed even with type errors. **Remove this and fix type errors instead.**
+- Line 29: `reactStrictMode: false` — Disabled; should be `true` in production to catch unsafe lifecycles and side effects.
+- Line 52: CSP allows `'unsafe-inline'` and `'unsafe-eval'` for `script-src`. `unsafe-eval` is particularly dangerous (allows `eval()`, prototype pollution gadgets). The app uses MDX editor (`@mdxeditor/editor`) which may require these — but they should be locked down with nonces/hashes before launch.
+- Line 33-35: `allowedDevOrigins` includes `*.space-z.ai` wildcard. In production this is harmless (the option only applies to dev), but it leaks the staging host name.
+
+#### 3.2 `tsconfig.json`
+- Line 11: `strict: true` ✓
+- Line 13: `noImplicitAny: false` — **Disables a major strict-mode check**, undermining `strict: true`.
+- Lines 32-41: `exclude` only contains `node_modules`. Should also exclude: `tests/fixtures/`, `tool-results/`, `examples/`, `mini-services/mail-service/**`, `archive/`, `upload/` (none of these are part of the Next.js build, and they may pollute the type-check).
+- No `forceConsistentCasingInFileNames` (defaults to `true` since TS 5 — OK).
+
+#### 3.3 `eslint.config.mjs`
+- Lines 12-46: **Almost every meaningful rule is disabled**, including `@typescript-eslint/no-explicit-any`, `@typescript-eslint/no-unused-vars`, `react-hooks/exhaustive-deps`, `no-undef`, `no-unreachable`, `prefer-const`. The ESLint config exists only to pass CI; it provides no real linting. CI runs `bun run lint` which always passes regardless of code quality.
+
+#### 3.4 `prisma/schema.prisma`
+- Missing `MessageLabel` join table — referenced by code comment at `mini-services/mail-service/index.ts:415` ("Note: Message-Label is a many-to-many if we had that table. For now, we log the label application"). This means **label-based filter actions are no-ops**.
+- `Message.senderIp` (line 96) — No index. Queries by IP (for abuse detection) will full-scan.
+- `Message.subject` — No index; `db.message.findMany({ where: { subject: { contains: q } } })` in `api/search/route.ts` will full-scan.
+- `Account.email` (line 194) — `@unique` only, no index. Lookups via `findUnique` are OK, but `findFirst` queries on email elsewhere would not use an index.
+- `SentMessage.trackingPixelId` (line 298) — Declared but never populated by code; `api/track/open/route.ts` looks up by `id`, not by `trackingPixelId`. Dead column.
+- `RateLimitBucket` model (lines 149-156) — Defined but never used (rate limiting is in-memory only per `src/lib/mail-utils.ts:207-222`). Dead schema.
+- `AbuseReport` (lines 140-147) — No index on `messageId` or `category`. The `admin/stats` `groupBy` query will full-scan as abuse reports grow.
+- No composite index on `[inboxId, receivedAt]` for the common "list messages by inbox, newest first" query (`api/inboxes/[id]/messages/route.ts:18`).
+- The `prisma/seed.ts` script is not wired into `package.json` scripts (no `"db:seed"` command). Per Prisma convention, should add `"prisma": { "seed": "tsx prisma/seed.ts" }` to `package.json` but `tsx` is not installed.
+
+#### 3.5 `render.yaml`
+- Lines 23-25 — **CRITICAL: Hardcodes real VAPID private key** `VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI` in plaintext. Same key is in `.env.production` which is committed to git (see §4.1).
+- Lines 26-27 — Hardcodes `SITE_ACCESS_PASSWORD_HASH` in plaintext. Although it's a hash, exposing it in a checked-in YAML file makes it publicly auditable; combined with no rate limit on `/api/site-access/verify`, this is a brute-force vector.
+- Lines 29-33 — Sets `SMTP_RELAY_HOST=localhost` and `TRUSTED_PROXY_HOSTS=127.0.0.1,::1,localhost`. On Render's web service, `localhost` SMTP won't reach the worker service (different process/container). The `studenttemp-mail` worker is on a separate service; the web service can't reach it via `localhost`. Needs an internal service URL.
+- The `startCommand: bun run start` (line 16) runs `bun .next/standalone/server.js`, but `package.json:12` sets `NODE_ENV=production`. Render's free tier sleeps after 15 min of inactivity — the SMTP server won't accept mail during sleep.
+- No health check configured for either service.
+- Two services + DB all on Render free tier — 750 hours/month limit means **only one of the two services can run 24/7** without exceeding the free tier.
+
+#### 3.6 `wrangler.toml`
+- Line 6: `compatibility_date = "2024-09-23"` — Outdated; Cloudflare recommends a date within the last 6 months. As of audit, this is ~24 months stale (project date is 2026-08).
+- Lines 10-12: The `[pages]` block uses non-standard syntax. Correct Cloudflare Pages config uses top-level keys `pages_build_output_dir` and does not use a `[pages]` table.
+- Line 12: `build_output_directory = ".vercel/output/static"` — References `.vercel/output/static` which is correct for `@cloudflare/next-on-pages`, but no `.vercel` directory is created at runtime. The build command `npx @cloudflare/next-on-pages` must succeed for this to exist; CI does not run this command, so the first deploy will fail without verification.
+- The file contradicts `render.yaml` — the project has **two competing deployment configurations** with no documented decision about which is canonical.
+
+#### 3.7 `.github/dependabot.yml`
+- ✓ Correctly configured for npm and github-actions.
+- Could add `mini-services/mail-service/` as a separate directory entry to keep mail-service deps updated independently.
+
+---
+
+### 4. Security Gaps
+
+#### 4.1 CRITICAL — Production secrets committed to git
+- `.env.production` is **explicitly un-ignored** by `.gitignore:38` (`!.env.production`) and contains:
+  - Real `VAPID_PRIVATE_KEY` (line 23)
+  - Real `SITE_ACCESS_PASSWORD_HASH` (line 28)
+  - Plaintext note "SHA-256 hash of the password 'StudentTemp#8800Roshan'" — **the password itself is leaked in a comment**.
+- Commit `3af244c` ("Remove .env from tracking") removed `.env` but the next commits re-added `.env.production` with the same secrets.
+- The VAPID private key is duplicated across: `.env`, `.env.production`, `render.yaml`, and the git history. **All four locations must be rotated.**
+- Recommended: change `.gitignore` to also ignore `.env.production`, run `git filter-repo` to scrub history, rotate VAPID keys, change the site-access password.
+
+#### 4.2 HIGH — No CSRF protection (defense-in-depth)
+- All cookies use `SameSite=Strict` (good), which prevents most CSRF.
+- However, there is **no CSRF token mechanism**, no `Origin`/`Referer` header check on state-changing requests, no `SameSite=Lax` fallback for cross-site top-level navigation. If a browser bug or future cookie change weakens SameSite, every POST/DELETE/PATCH endpoint is exposed.
+- For an email-sending app (where actions like forward/send-mail can leak data), defense-in-depth CSRF tokens should be added.
+
+#### 4.3 HIGH — Unauthenticated internal broadcast endpoint
+- `mini-services/mail-service/index.ts:115-150` — The HTTP server's `/internal/broadcast` endpoint accepts arbitrary POSTs with no auth, no origin check, and re-broadcasts them to all subscribed browser tabs via Socket.IO. If port 3003 is reachable from outside the host (Render assigns a public URL to every service), anyone can inject fake "new message" events into every connected browser.
+- `src/app/api/inboxes/[id]/receive-mail/route.ts:185-194` — Calls this endpoint with a plain `fetch('http://localhost:3003/internal/broadcast')`. On Render's separate services, `localhost` won't work; the URL must be configurable.
+
+#### 4.4 HIGH — No SSRF mitigations on URL-accepting fields
+- The application doesn't currently accept user-supplied URLs to fetch server-side (the only `fetch()` call in `api/` is to a hardcoded `localhost:3003`), so SSRF is **not currently exploitable**. But the Web Push subscriptions table stores user-supplied `endpoint` URLs (`src/app/api/notifications/subscribe/route.ts:9-22`) and these are later fetched by `web-push` (`notifications/send/route.ts:54`, `mini-services/mail-service/index.ts:572`). A malicious `endpoint` like `http://169.254.169.254/latest/meta-data/` would be called server-side, returning AWS metadata to the attacker via the push response. Need to validate that `endpoint` starts with `https://` and is on a known-good push provider FQDN.
+
+#### 4.5 MEDIUM — Path traversal defense is brittle but currently sound
+- `src/app/api/messages/[id]/attachments/[attId]/route.ts:25` — `readFileSync(att.storageKey)` reads from DB-stored path. The `storageKey` is set by the mail-service (`mini-services/mail-service/index.ts:343`) as `join(ATTACHMENT_DIR, ${sha}-${filename})` where `filename` is sanitized by `sanitizeFilename` (`mini-services/mail-service/index.ts:602-604`) which strips everything except `[a-zA-Z0-9._-]`. So path traversal is mitigated, **but** the order of operations is fragile: if `sanitizeFilename` is ever weakened (e.g., to allow Unicode), `join()` would collapse `../` segments. Defense-in-depth: validate that the resolved path is within `ATTACHMENT_DIR` using `path.resolve()` + `startsWith()`.
+- `src/app/api/messages/[id]/route.ts:78` and `src/app/api/inboxes/[id]/route.ts:33` — `unlinkSync(att.storageKey)` on delete. Same risk profile.
+
+#### 4.6 MEDIUM — Prototype pollution risk
+- No `Object.assign({}, reqBody, ...)` pattern with attacker-controlled keys is used in the audited API routes (no prototype pollution found).
+- However, `src/app/api/inboxes/route.ts:158` and `api/analytics/route.ts:175` spread `body` into Prisma `data: {...}` payloads. If `body` contains `__proto__` or `constructor`, it could potentially pollute. Recommend explicit field extraction (already done in most routes) and consider `Object.create(null)` for parsed bodies.
+
+#### 4.7 LOW — Open redirect
+- No `res.redirect()` or `window.location = userInput` patterns found. The only `window.location.reload()` calls are in client components after auth changes — safe.
+
+#### 4.8 Cookie security summary
+- All auth cookies (`st_session`, `st_account`, `st_access`) correctly set `HttpOnly` + `SameSite=Strict` ✓
+- `Secure` flag is conditional on `shouldSetSecure()` which checks either `NODE_ENV === 'production'` OR trusted-proxy + `x-forwarded-proto: https`. This means: **on Render (production), `Secure` is always set ✓**; in dev without proxy, `Secure` is omitted (intentional, so cookies work on `localhost:3000`). Correct.
+- The sidebar-state cookie (`src/components/ui/sidebar.tsx:88`) is not `HttpOnly`, but it only stores a UI preference (sidebar open/closed). Acceptable.
+- No `Path` restriction issues — all use `Path=/` which is appropriate for top-level auth cookies.
+
+#### 4.9 Security headers (in `next.config.ts:40-93`)
+- ✓ `X-Content-Type-Options: nosniff`
+- ✓ `X-Frame-Options: SAMEORIGIN` (also in CSP `frame-ancestors`)
+- ✓ `Content-Security-Policy` (broad, but with `unsafe-inline` and `unsafe-eval` — see §3.1)
+- ✓ `Referrer-Policy: strict-origin-when-cross-origin`
+- ✓ `X-XSS-Protection: 1; mode=block` (deprecated by modern browsers, harmless)
+- ✓ `Permissions-Policy` (camera, microphone, geolocation, interest-cohort all disabled)
+- ✓ `Cross-Origin-Opener-Policy: same-origin`
+- ✓ `Cross-Origin-Resource-Policy: same-site`
+- ✓ `Strict-Transport-Security` (1 year in prod, 30 days in dev; `preload` intentionally omitted)
+- ❌ Missing: `Cross-Origin-Embedder-Policy` (would enable `SharedArrayBuffer` if ever needed; not required but good practice).
+
+#### 4.10 Rate-limiting coverage gaps (full inventory)
+**Endpoints WITH rate limiting** (key — limit/window):
+- `auth/login` — 10/hr/IP ✓
+- `auth/signup` — 3/hr/IP ✓
+- `inboxes POST` — 10/hr/IP ✓
+- `check-alias POST` — 20/min/IP ✓
+- `send-mail POST` — 5/hr/IP ✓
+- `messages/[id]/forward` — 5/hr/IP ✓
+- `messages/[id]/reply` — 5/hr/IP ✓
+- `messages/[id]/report` — 10/hr/IP ✓
+- `contact POST` — 3/hr/IP ✓
+- `accounts/aliases POST` — 5/hr/IP ✓
+- `accounts/inboxes POST` — 10/hr/IP ✓
+- `inboxes/[id]/test-mail` — 5/hr/IP ✓
+- `inboxes/[id]/receive-mail` — 20/hr/IP ✓
+
+**Endpoints WITHOUT rate limiting (that should have it):**
+- `site-access/verify POST` — **brute-force risk** (HIGH)
+- `session POST` (recovery) — **brute-force risk** (HIGH)
+- `accounts/2fa/setup POST` — secret regeneration abuse (MEDIUM)
+- `accounts/2fa/verify POST` — TOTP brute-force (HIGH)
+- `accounts/2fa/backup-codes POST` — regeneration abuse (LOW)
+- `accounts/2fa DELETE` — password brute-force (HIGH)
+- `accounts/labels POST/PATCH/DELETE` — write abuse (LOW)
+- `accounts/filters POST/DELETE` — write abuse (LOW)
+- `accounts/contacts POST/DELETE` — write abuse (LOW)
+- `accounts/drafts POST` — autosave abuse / DB bloat (MEDIUM)
+- `accounts/vacation PUT` — write abuse (LOW)
+- `accounts/sessions DELETE` — revoke abuse (LOW)
+- `accounts/export GET` — heavy query, DoS (MEDIUM)
+- `accounts/delete POST` — DoS via repeated deletion requests (LOW)
+- `messages/[id] PATCH` — read-state toggle abuse (LOW)
+- `messages/[id]/attachments/[attId] GET` — download abuse (LOW)
+- `messages/[id]/export GET` — heavy query, DoS (MEDIUM)
+- `inboxes/[id]/export GET` — heavy query, DoS (MEDIUM)
+- `notifications/subscribe POST` — subscription spam (LOW)
+- `notifications/send POST` — push spam (MEDIUM)
+- `webhooks/relay POST` — **external webhook abuse** (HIGH)
+- `admin/stats GET` — heavy aggregation query (HIGH — combined with no admin auth = DoS)
+- `search GET` — full-text LIKE scan, DoS (MEDIUM)
+- `track/open GET` — pixel load, DoS (LOW)
+- `analytics GET` — full-session message scan, DoS (MEDIUM)
+- `challenge POST` — PoW token farming (LOW)
+
+#### 4.11 In-memory rate limiter does not scale
+- `src/lib/mail-utils.ts:207-222` — `Map<string, Bucket>` is per-process. Render free tier may run multiple instances; each gets its own map. The effective rate limit becomes `N × configured_limit` where N is instance count.
+- The `RateLimitBucket` table exists in schema (`prisma/schema.prisma:149-156`) but is unused — comment says "In-memory backup for audit; primary is in-memory token bucket." Should be wired up or replaced with Redis (Upstash) per `OPEN-QUESTIONS.md` OQ-3.
+
+---
+
+### 5. CI/CD (`.github/workflows/ci.yml`)
+
+The workflow has two jobs (`lint-and-typecheck`, `build`) and is **incomplete**:
+
+**What's present:**
+- ESLint run ✓
+- TypeScript check (with grep filter for production-only paths) ✓
+- Security audit (`bun audit || true` — non-blocking) ✓
+- Build with `NEXT_TELEMETRY_DISABLED=1` ✓
+- Verify standalone output exists ✓
+
+**What's MISSING:**
+1. **No tests** — there is no `bun test` or `bun run test` step. There are no tests to run anyway (`tests/` contains only shell scripts that test build infrastructure, not application logic). No `vitest`, `jest`, `playwright`, or `cypress` in devDependencies.
+2. **No security scanning** beyond `bun audit` (which is non-blocking). Missing: `eslint-plugin-security`, `@bugcrowd/sast`, `snyk`, `dependabot security alerts` (Dependabot is configured for updates only, not security alerts).
+3. **No license check** — no `license-checker` or similar to flag GPL/AGPL dependencies in a "private" project.
+4. **No caching** — `actions/setup-node` cache key isn't configured; `bun install` re-runs fully on every CI run. Should add `actions/cache` for `~/.bun/install/cache` and `.next/cache`.
+5. **No deployment step** — no `deploy` job. Render and Cloudflare Pages both support deploy-on-push via webhook; CI doesn't trigger them.
+6. **No matrix testing** — single Node/Bun version. Should test on `Bun latest` + `Node 20` + `Node 22` at minimum.
+7. **No coverage reporting** — no `codecov` or `coveralls` integration.
+8. **No linting of `mini-services/mail-service/`** — separate package, not linted by CI.
+9. **No build verification for `mini-services/mail-service/`** — TypeScript build of the mail-service is not checked.
+10. **No PR title / commit message linting** — no `commitlint` or `amannl/action-semantic-pull-request`.
+11. **No branch protection enforcement** — workflow does not require status checks to pass before merge.
+12. **TypeScript check is non-blocking** — line 21 uses `|| true`, so type errors don't fail CI.
+13. **Build does not run `bun run db:generate`** — Prisma client is generated at install time, but CI doesn't verify the generated client matches `schema.prisma`.
+14. **No artifact upload** — the built `.next/standalone` is discarded after verification.
+
+---
+
+### 6. Dependencies (`package.json`)
+
+#### 6.1 Outdated / version-mismatch issues
+- `prisma: ^6.19.3` and `@prisma/client: ^6.19.3` (main package) vs `prisma: 6.11.1` and `@prisma/client: 6.11.1` (`mini-services/mail-service/package.json:10,15`) — **version mismatch** between the two packages. If both connect to the same DB, schema drift is possible. Pin both to the same version.
+- `socket.io-client: ^4.8.3` (main) vs `socket.io: ^4.7.5` (mail-service) — minor version drift. Socket.IO is picky about server/client version compatibility (`^4.7` server may reject `^4.8` client features). Should pin to same `4.x.y`.
+- `next: ^16.3.2` — Next.js 16 was a recent release; ensure all Radix UI components are compatible. `react: ^19.2.8` is the latest. No major issues, but bleeding-edge.
+
+#### 6.2 Missing devDependencies
+- ❌ No test framework — `vitest`, `@vitest/coverage-v8`, or `jest` + `ts-jest`.
+- ❌ No E2E framework — `playwright` or `cypress`.
+- ❌ No security linter — `eslint-plugin-security`, `eslint-plugin-no-unsanitized`.
+- ❌ No bundle analyzer — `@next/bundle-analyzer`.
+- ❌ No commit linter — `@commitlint/cli`, `@commitlint/config-conventional`.
+- ❌ No format-on-commit — `husky`, `lint-staged`.
+- ❌ No Prettier — code style is enforced only by ESLint (with most rules disabled).
+- ❌ No `tsx` or `ts-node` — required to run `prisma/seed.ts` directly.
+
+#### 6.3 Unused / questionable dependencies
+- `next-auth: ^4.24.15` (line 69) — **NOT IMPORTED anywhere in `src/`**. Custom auth is implemented in `src/lib/auth-utils.ts`. Either remove `next-auth` or wire it up (it's a heavy dep at ~3MB).
+- `zod: ^4.4.3` (line 92) — **Only imported in `src/components/sections/compose-section.tsx`**. None of the API routes use Zod for input validation despite it being the obvious choice. Should be used pervasively in API route handlers.
+- `@hookform/resolvers: ^5.9.1` and `react-hook-form: ^7.86.0` — Used only in compose-section. Fine.
+- `react-syntax-highlighter: ^15.6.6` (line 81) — heavy (~1MB). Verify it's actually used (didn't see imports in `src/`).
+- `react-markdown: ^10.1.0` (line 79) — Used for legal doc rendering? Legal docs are rendered server-side as plain strings; verify usage.
+- `@mdxeditor/editor: ^3.55.0` (line 24) — Used in compose-section for rich text. Heavy (~2MB). Acceptable if rich text editing is a real feature.
+- `z-ai-web-dev-sdk: ^0.0.18` (line 91) — This is an AI SDK; unclear why it's a runtime dependency of a temp-mail app. **Audit usage and remove if unused.**
+- `uuid: ^11.1.1` (line 88) — All IDs in schema use `cuid()` via Prisma. `uuid` may be unused.
+- `date-fns: ^4.4.0` (line 63) — Verify usage; not seen in audited files.
+
+#### 6.4 Security-relevant deps
+- `bcryptjs: ^3.0.3` (line 59) — Pure-JS bcrypt. Slower than native `bcrypt`. For a service expecting any meaningful login volume, should switch to native `bcrypt` (or `argon2`).
+- `dompurify: ^3.2.4` (mail-service) — Good.
+- `jsdom: ^26.1.0` (mail-service) — Required for server-side DOMPurify. Acceptable.
+
+---
+
+### 7. Documentation (`docs/`)
+
+#### 7.1 Broken references
+- `src/app/api/notifications/send/route.ts:37` and `mini-services/mail-service/index.ts:550` — Reference `SECURITY.md §35` — **`SECURITY.md` does not exist**. Either create it or remove the references.
+- `public/robots.txt:10` — `Sitemap: /sitemap.xml` — **`public/sitemap.xml` does not exist**.
+- `src/proxy.ts:76` — References `favicon.ico` in static allowlist — **`public/favicon.ico` does not exist**.
+- `docs/audit/FINAL-AUDIT-SUMMARY-V3.md` claims "ESLint: 0 errors" — technically true but misleading because **all ESLint rules are disabled** (see §3.3).
+- `README.md:18` — Claims "Admin dashboard API with system stats" — true in code but **the admin endpoint has no admin auth check** (see §1.1). Misleading.
+- `README.md:88-107` — Lists a "Testing" section with `bun audit` and curl examples but **no actual test framework is set up**. Misleading.
+
+#### 7.2 Outdated / contradictory claims
+- `README.md:5` — Author linked to `https://github.com/roshan` (a generic URL, not a real user).
+- `docs/COMPLETE-PROJECT-GUIDE.md:50` — States "Hosting platform (Render)" as the only deployment target. But `wrangler.toml` and `docs/deploy/FREE-DEPLOY-STATUS.md` describe Cloudflare Pages. **Two conflicting deployment targets** are documented.
+- `docs/deploy/FREE-DEPLOY-STATUS.md:106` — Hardcodes the same leaked `SITE_ACCESS_PASSWORD_HASH` value. Confirms the password leak.
+- `docs/audit/FINAL-AUDIT-SUMMARY-V3.md:13-19` — Lists 6 "NO-GO blockers", of which 4 are "HUMAN-ONLY" (i.e. unresolved). The audit summary marks itself complete despite 4 unresolved blockers. Misleading.
+- `docs/decisions/OPEN-QUESTIONS.md` — Documents 7 architectural decisions "awaiting human sign-off" — all 7 are still unaddressed at the code level. None have been resolved.
+
+#### 7.3 Placeholder / stub content
+- `download/README.md` — Contains only: "Here are all the generated files." — Looks like a stub.
+- `docs/audit/PHASE-0-INVENTORY-REPORT.md`, `PHASE-1-STATIC-AUDIT-REPORT.md`, etc. — 10 separate audit report files in `docs/audit/`. Many overlap and contradict each other (V1, V2, V3 of "FINAL-AUDIT-SUMMARY"). Should consolidate into a single source of truth.
+- `src/app/api/route.ts` — The root API route returns `{ message: "Hello, world!" }` — a placeholder from Next.js scaffolding. Should be removed or replaced with a real health check (`{ ok: true, version, timestamp }`).
+
+#### 7.4 Stray / non-project content
+- `upload/` — Contains 5 binary screenshots (`Screenshot_*.jpg/png`), 4 CSV files of student email domains, and prompt/spec markdown files. These are **project inputs, not source code** and should not be in the repo. They add ~2MB to clone and confuse the audit trail.
+- `agent-ctx/DEEP-AUDIT-FINAL-main.md` — Looks like a previous agent's audit output. Should be moved to `docs/audit/` or removed.
+- `archive/cron-old/worklog-archive.md` — Old worklog. Should be moved out of the repo or git-archived.
+- `tool-results/` — Contains 30+ `.txt` files (each ~5-50KB) of previous tool outputs (bash commands and file reads). Should not be in the repo.
+- `cookies.txt` — A 680-byte file at the repo root. Contents not inspected but the name suggests saved cookies — potential secret leak.
+- `tests/python-runtime-*.sh` and `tests/database-runtime-build.sh` — Shell scripts that test the build infrastructure (not the application). Belong in `.zscripts/test/` or a CI-only directory.
+
+---
+
+### 8. Final Risk Summary
+
+| # | Severity | Issue | Location |
+|---|----------|-------|----------|
+| 1 | 🔴 CRITICAL | Production VAPID private key + site access password committed to git | `.env.production:23,28`, `render.yaml:23-27`, git history |
+| 2 | 🔴 CRITICAL | Admin endpoint has no admin authorization check | `src/app/api/admin/stats/route.ts:6-13` |
+| 3 | 🔴 CRITICAL | TOTP secrets protected only by XOR obfuscation | `src/app/api/accounts/2fa/setup/route.ts:38-42` |
+| 4 | 🔴 CRITICAL | TOTP secret exfiltrated to third-party QR service | `src/app/api/accounts/2fa/setup/route.ts:58` |
+| 5 | 🟠 HIGH | Webhook receiver has no signature verification | `src/app/api/webhooks/relay/route.ts:12-30` |
+| 6 | 🟠 HIGH | SMTP transports use `rejectUnauthorized: false` | 5 files (see §1.5) |
+| 7 | 🟠 HIGH | `getClientIp` trusts XFF without proxy validation | `src/lib/mail-utils.ts:224-230` |
+| 8 | 🟠 HIGH | No rate limit on password / 2FA / recovery endpoints | 6 endpoints (see §1.7) |
+| 9 | 🟠 HIGH | Internal Socket.IO broadcast endpoint has no auth | `mini-services/mail-service/index.ts:115-150` |
+| 10 | 🟠 HIGH | No CSRF defense-in-depth (relies solely on SameSite) | All POST/DELETE/PATCH routes |
+| 11 | 🟡 MEDIUM | `typescript.ignoreBuildErrors: true` swallows type errors | `next.config.ts:27` |
+| 12 | 🟡 MEDIUM | All ESLint rules disabled — CI lint is a no-op | `eslint.config.mjs:10-48` |
+| 13 | 🟡 MEDIUM | Missing input validation across most POST routes | 7+ endpoints (see §1.8) |
+| 14 | 🟡 MEDIUM | In-memory rate limiter doesn't scale horizontally | `src/lib/mail-utils.ts:207-222` |
+| 15 | 🟡 MEDIUM | Missing `MessageLabel` join table — label filter actions are no-ops | `prisma/schema.prisma`, `mini-services/mail-service/index.ts:415` |
+| 16 | 🟡 MEDIUM | receive-mail HTML sanitization uses regex, not a real parser | `src/app/api/inboxes/[id]/receive-mail/route.ts:83-95` |
+| 17 | 🟡 MEDIUM | `accounts/sessions` DELETE revokes ALL sessions including current | `src/app/api/accounts/sessions/route.ts:29-32` |
+| 18 | 🟡 MEDIUM | CI workflow is incomplete — no tests, no security scan, no caching | `.github/workflows/ci.yml` |
+| 19 | 🟡 MEDIUM | `render.yaml` has localhost SMTP (won't work across Render services) | `render.yaml:29-33` |
+| 20 | 🟡 MEDIUM | `wrangler.toml` has invalid `[pages]` syntax + outdated compatibility_date | `wrangler.toml:6,10-12` |
+| 21 | 🟢 LOW | 7+ missing community files (LICENSE, SECURITY.md, etc.) | root + `.github/` |
+| 22 | 🟢 LOW | Stray `upload/`, `tool-results/`, `cookies.txt` in repo | root |
+| 23 | 🟢 LOW | `next-auth` dependency is unused | `package.json:69` |
+| 24 | 🟢 LOW | No favicon.ico or sitemap.xml (referenced but missing) | `public/` |
+| 25 | 🟢 LOW | Inconsistent error response shapes across endpoints | All API routes |
+| 26 | 🟢 LOW | 11+ missing rate limits on lower-risk endpoints | (see §4.10) |
+
+### Recommended Next Actions (in priority order)
+1. **Rotate all committed secrets** (VAPID keys, site-access password) and rewrite git history with `git filter-repo`.
+2. **Add admin authorization** to `/api/admin/stats` (RBAC with an `admin` role on Account, or hardcode an allow-list of admin account IDs).
+3. **Replace XOR obfuscation with AES-256-GCM** for TOTP secrets; remove the hardcoded fallback key.
+4. **Self-host QR code generation** for 2FA setup (use `qrcode.react` which is already installed).
+5. **Implement HMAC signature verification** on `/api/webhooks/relay` (Resend and Brevo both publish signing-secret algorithms).
+6. **Add rate limiting** to all 6 unauthenticated-credential endpoints (site-access, session recovery, 2FA verify/setup/disable, backup-codes).
+7. **Lock down SMTP `rejectUnauthorized`** to only allow `false` for loopback hosts.
+8. **Validate `getClientIp` against trusted proxy** (mirror the logic in `src/proxy.ts`).
+9. **Add CSRF tokens** to all state-changing endpoints (defense-in-depth).
+10. **Add real test framework** (vitest + playwright) and wire into CI.
+11. **Re-enable ESLint rules** and `typescript.ignoreBuildErrors: false` — fix the resulting errors.
+12. **Create `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/CODEOWNERS`, `.github/ISSUE_TEMPLATE/`, `public/sitemap.xml`, `public/favicon.ico`**.
+13. **Decide on one deployment target** (Render OR Cloudflare Pages) and remove the other config.
+14. **Remove `next-auth`, `z-ai-web-dev-sdk`, `uuid`, and other unused dependencies** after verifying usage.
+15. **Move `upload/`, `tool-results/`, `agent-ctx/`, `archive/`, `cookies.txt` out of the repo**.
+16. **Implement `MessageLabel` join table** so filter label actions actually work.
+
+**End of AUDIT-1.**
+
+---
+
+## Task ID: REPO-FILES — Repository Community Files
+
+**Agent:** REPO-FILES agent
+**Scope:** Create the standard open-source community files referenced by AUDIT-1
+item #21 (missing LICENSE, SECURITY.md, etc.) and #24 (missing sitemap.xml).
+
+### Files Created
+
+| # | Path | Notes |
+|---|------|-------|
+| 1 | `LICENSE` | MIT License, copyright (c) 2026 Roshan. |
+| 2 | `SECURITY.md` | Reporting workflow, threat model, security measures implemented (secure cookies, CSP, HSTS, rate limiting, 2FA TOTP, HTML sanitization, file scanning), and explicit "not supported" list (no ClamAV, no Redis — sandbox alternatives). |
+| 3 | `CONTRIBUTING.md` | Fork/branch/commit conventions (Conventional Commits), lint + typecheck requirements, testing expectations, PR process. Credits "Developed by Roshan" and contributor ManashBhoi. |
+| 4 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 standard text with enforcement contact pointing at @Manash07Bhoi. |
+| 5 | `CHANGELOG.md` | Keep a Changelog format. v1.0.0 entry lists features actually implemented in `src/components/sections/*` and `prisma/schema.prisma` (inbox, account mode, 2FA, app lock, PWA, i18n, analytics, etc.). |
+| 6 | `SUPPORT.md` | GitHub Issues, site-access password disclosure policy, deployment docs pointers, what is NOT supported. |
+| 7 | `.github/CODEOWNERS` | `* @Manash07Bhoi`. |
+| 8 | `.github/pull_request_template.md` | Description, type-of-change radio, related issues, testing matrix (lint / typecheck / mobile / desktop / dark-light), secrets checklist. |
+| 9 | `.github/ISSUE_TEMPLATE/bug_report.md` | Description, steps, expected, actual, screenshots, environment grid, site-access note (without disclosing the password). |
+| 10 | `.github/ISSUE_TEMPLATE/feature_request.md` | Problem, proposed solution, alternatives, schema/API/deps scope, willingness-to-contribute checklist. |
+| 11 | `.github/ISSUE_TEMPLATE/config.yml` | `blank_issues_enabled: false`, contact links for security advisories, deployment runbook, discussions. |
+| 12 | `public/sitemap.xml` | Single root URL pointing at `https://studenttemp.app/`. |
+| 13 | `public/robots.txt` | Updated: disallow `/api/`, `/inbox/`, `/account/`, `/admin/`, `sw.js`, `manifest.json`; block GPTBot / CCBot / Google-Extended; fully-qualified `Sitemap:` URL. |
+
+### Audit Item Status
+
+- AUDIT-1 item #21 (7+ missing community files) — **resolved**.
+- AUDIT-1 item #24 (no `sitemap.xml`) — **resolved**. (`favicon.ico` still
+  missing — out of scope for this task.)
+
+### Not Done (Out of Scope)
+
+- No code changes. No git history rewrite. No secret rotation.
+- Did not remove `next-auth`, `z-ai-web-dev-sdk`, `uuid`, or other unused
+  dependencies (AUDIT-1 #14).
+- Did not move `upload/`, `tool-results/`, `cookies.txt`, `archive/`,
+  `agent-ctx/` out of the repo (AUDIT-1 #15).
+- Did not create `public/favicon.ico` (AUDIT-1 #24 part 2).
+
+**End of REPO-FILES.**

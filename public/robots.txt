@@ -1,10 +1,28 @@
+# StudentTemp — robots.txt
+# Public site: https://studenttemp.app/
+
+# Default policy: allow the homepage and marketing surfaces, disallow API
+# endpoints and any user-specific inbox/mailbox URLs.
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /inbox/
+Disallow: /account/
+Disallow: /admin/
 
-# Block crawling of API endpoints
-User-agent: Googlebot
-Allow: /
-Disallow: /api/
+# Real-time and service worker assets should not be indexed.
+Disallow: /sw.js
+Disallow: /manifest.json
 
-Sitemap: /sitemap.xml
+# Explicitly block aggressive crawlers that provide no SEO value to this app.
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+# Sitemap must be a fully-qualified URL.
+Sitemap: https://studenttemp.app/sitemap.xml

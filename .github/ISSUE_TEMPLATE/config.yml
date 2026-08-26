@@ -1,0 +1,24 @@
+# Issue templates configuration
+# https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository#configuring-template-choosers
+
+# Blank issues are disabled — please use the bug_report or feature_request
+# templates so maintainers have the context needed to triage.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/Manash07Bhoi/StudentTemp/security/advisories/new
+    about: |
+      Do NOT open a public issue for security vulnerabilities. Use a private
+      GitHub Security Advisory, or contact the maintainer directly. See
+      SECURITY.md for the full disclosure policy.
+  - name: Deployment & self-hosting docs
+    url: https://github.com/Manash07Bhoi/StudentTemp/blob/main/docs/deploy/DEPLOYMENT-RUNBOOK.md
+    about: |
+      Read the Deployment Runbook before opening an issue about deployment
+      failures. Most setup questions are answered there.
+  - name: Questions & discussions
+    url: https://github.com/Manash07Bhoi/StudentTemp/discussions
+    about: |
+      For "how do I..." questions that are not bugs or feature requests,
+      open a Discussion instead of an Issue.
