@@ -1,0 +1,53 @@
+name: SBOM Generation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - 'bun.lock'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          npx @cyclonedx/cyclonedx-npm --output-format json --output-file sbom.json
+          if [ ! -f sbom.json ]; then
+            echo "::error::SBOM generation failed"
+            exit 1
+          fi
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.json
+          retention-days: 90
+
+      - name: Verify SBOM contains expected components
+        run: |
+          COMPONENT_COUNT=$(python3 -c "import json; print(len(json.load(open('sbom.json')).get('components', [])))")
+          echo "::notice::SBOM contains $COMPONENT_COUNT components"
+          if [ "$COMPONENT_COUNT" -lt 10 ]; then
+            echo "::warning::SBOM has fewer than 10 components — verify dependencies are installed"
+          fi
+
+      - name: Attach SBOM to release (if release event)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.json

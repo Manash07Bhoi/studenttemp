@@ -1,0 +1,51 @@
+name: Accessibility Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  axe-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Build for testing
+        run: bun run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Start production server
+        run: |
+          bun run start &
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+          # Wait for server to be ready
+          for i in $(seq 1 30); do
+            if curl -s -o /dev/null http://localhost:3000; then
+              echo "Server ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run axe-core accessibility tests
+        uses: deque-software/axe-action@v2
+        with:
+          url: http://localhost:3000
+          tags: wcag2a,wcag2aa
+
+      - name: Kill server
+        if: always()
+        run: |
+          if [ -n "$SERVER_PID" ]; then
+            kill $SERVER_PID || true
+          fi

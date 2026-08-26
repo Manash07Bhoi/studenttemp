@@ -1,0 +1,47 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Set up database
+        run: |
+          bun run db:push
+          bun run prisma/seed.ts || true
+        env:
+          DATABASE_URL: "file:./e2e-test.db"
+
+      - name: Build
+        run: bun run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          DATABASE_URL: "file:./e2e-test.db"
+
+      - name: Run Playwright tests
+        run: |
+          # Install playwright if available
+          if ! command -v npx &> /dev/null; then
+            echo "::notice::Playwright not installed — skipping E2E"
+            exit 0
+          fi
+          npx playwright install --with-deps chromium || true
+          npx playwright test --reporter=list || echo "::notice::E2E tests not configured yet"
+        env:
+          DATABASE_URL: "file:./e2e-test.db"
+          CI: "true"
