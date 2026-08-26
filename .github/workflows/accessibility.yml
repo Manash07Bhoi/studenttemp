@@ -37,8 +37,15 @@ jobs:
             sleep 1
           done
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Run axe-core accessibility tests
         run: |
+          # Use npx browser-driver-manager to align chromedriver version
+          npx browser-driver-manager install chrome
           npx @axe-core/cli@latest http://localhost:3000 --tags wcag2a,wcag2aa
 
       - name: Kill server

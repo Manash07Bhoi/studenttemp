@@ -1,5 +1,6 @@
 {
   "name": "studenttemp",
+  "workspaces": ["mini-services/*"],
   "version": "1.0.0",
   "author": "Roshan",
   "contributors": [

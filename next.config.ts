@@ -104,8 +104,6 @@ export default withSentryConfig(nextConfig, {
   org: "studentemp",
   project: "javascript-nextjs",
   widenClientFileUpload: true,
-  transpileClientSDK: true,
   tunnelRoute: "/monitoring",
-  hideSourceMaps: true,
   disableLogger: true,
 });
