@@ -3,12 +3,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAccountId } from '@/lib/auth-utils'
 
+// Admin emails — these accounts have access to admin dashboard
+const ADMIN_EMAILS = new Set([
+  'admin@studentbox.in',
+  'roshan@studentbox.in',
+])
+
 export async function GET(req: NextRequest) {
-  // Simple admin check — in production this would check an admin role
   const accountId = await getAccountId()
-  // For now, allow any authenticated account to see basic stats
-  // In production: check if account has admin role
   if (!accountId) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+
+  // Check if this account has admin privileges
+  const account = await db.account.findUnique({
+    where: { id: accountId },
+    select: { email: true, status: true },
+  })
+  if (!account || account.status !== 'active') {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+  if (!ADMIN_EMAILS.has(account.email)) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
 

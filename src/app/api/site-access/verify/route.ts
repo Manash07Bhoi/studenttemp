@@ -9,6 +9,7 @@
 // On successful POST, sets an HttpOnly, Secure, SameSite=Strict cookie that expires in 30 days.
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { getClientIp, rateLimit } from '@/lib/mail-utils'
 
 const ACCESS_COOKIE = 'st_access'
 const ACCESS_COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
@@ -28,7 +29,6 @@ function sha256(input: string): string {
 
 // GET — check if the current request has a valid access cookie
 export async function GET(req: NextRequest) {
-  // If no password is configured, allow access (no gate needed)
   if (!process.env.SITE_ACCESS_PASSWORD_HASH) {
     return NextResponse.json({ hasAccess: true, gateEnabled: false })
   }
@@ -40,6 +40,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Rate limit: 10 attempts per minute per IP (prevents brute force)
+  const ip = getClientIp(req)
+  const limit = rateLimit(`site-access:${ip}`, 10, 60 * 1000)
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: 'Too many attempts. Please wait a minute.' },
+      { status: 429 }
+    )
+  }
+
   const body = await req.json().catch(() => ({}))
   const { password } = body || {}
 

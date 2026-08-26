@@ -1,0 +1,38 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  eslint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: ESLint with max-warnings
+        run: bun run lint -- --max-warnings=0
+
+  prettier-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Check formatting (if prettier is configured)
+        run: |
+          if [ -f .prettierrc ] || [ -f .prettierrc.json ] || grep -q '"prettier"' package.json; then
+            npx prettier --check "src/**/*.{ts,tsx}" "mini-services/**/*.ts"
+          else
+            echo "::notice::Prettier not configured — skipping format check"
+          fi

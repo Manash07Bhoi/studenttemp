@@ -111,9 +111,17 @@ function unsubscribe(map: Map<string, Set<string>>, key: string, socketId: strin
 // ---------- Internal broadcast endpoint ----------
 // Allows the Next.js API to inject messages (received via /api/inboxes/[id]/receive-mail)
 // and have them broadcast to all subscribed browser tabs via Socket.IO.
-// This is used when external mail cannot reach the sandbox SMTP server.
+// Security: requires a shared secret header to prevent unauthorized broadcasts.
 httpServer.on('request', (req, res) => {
   if (req.method !== 'POST' || req.url !== '/internal/broadcast') return
+  // Verify the internal API secret
+  const authHeader = req.headers['x-internal-secret'] as string
+  const expectedSecret = process.env.INTERNAL_API_SECRET || 'studenttemp-internal-dev-only'
+  if (authHeader !== expectedSecret) {
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
   let body = ''
   req.on('data', (chunk) => { body += chunk; if (body.length > 1_000_000) body = '' })
   req.on('end', () => {

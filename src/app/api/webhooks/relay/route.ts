@@ -1,48 +1,103 @@
 // POST /api/webhooks/relay — Webhook receiver for relay provider events (Resend/Brevo)
 //
-// Phase 13.4: Updates sent_messages.status based on real webhook payloads.
-// Supports Resend and Brevo webhook formats.
-//
-// Security: In production, verify the webhook signature using the provider's
-// signing secret. For now, we accept POST with JSON and verify the relayMessageId
-// matches an existing sent_messages row.
+// Security: Verifies webhook signatures to prevent forged delivery/bounce events.
+// Resend: verifies using the Resend webhook signing secret
+// Brevo: verifies using the Brevo webhook signature
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import crypto from 'crypto'
+
+// Verify Resend webhook signature
+function verifyResendSignature(payload: string, signature: string, timestamp: string): boolean {
+  const webhookSecret = process.env.RESEND_WEBHOOK_SECRET
+  if (!webhookSecret) return false // No secret configured — reject
+  const expectedSignature = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(`${timestamp}.${payload}`)
+    .digest('hex')
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  )
+}
+
+// Verify Brevo webhook signature
+function verifyBrevoSignature(payload: string, signature: string): boolean {
+  const webhookSecret = process.env.BREVO_WEBHOOK_SECRET
+  if (!webhookSecret) return false
+  const expectedSignature = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(payload)
+    .digest('hex')
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  )
+}
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}))
+  const rawBody = await req.text()
 
-  // Resend webhook format: { type: 'email.delivered'|'email.bounced', email: { id: '...' } }
-  // Brevo webhook format: { event: 'delivered'|'hard_bounce'|'soft_bounce'|'complaint', message-id: '...' }
+  // Get signature headers
+  const resendSignature = req.headers.get('svix-signature') || req.headers.get('resend-signature')
+  const resendTimestamp = req.headers.get('svix-timestamp') || req.headers.get('resend-timestamp')
+  const brevoSignature = req.headers.get('brevo-signature')
 
+  // If no webhook secret is configured, check for a shared secret in the URL
+  // This is a fallback for development/testing only
+  const url = new URL(req.url)
+  const sharedSecret = url.searchParams.get('secret')
+  const configuredSecret = process.env.WEBHOOK_SHARED_SECRET
+
+  const isAuthorized = (() => {
+    // Method 1: Resend signature verification
+    if (resendSignature && resendTimestamp) {
+      return verifyResendSignature(rawBody, resendSignature, resendTimestamp)
+    }
+    // Method 2: Brevo signature verification
+    if (brevoSignature) {
+      return verifyBrevoSignature(rawBody, brevoSignature)
+    }
+    // Method 3: Shared secret in query param (fallback for dev/testing)
+    if (configuredSecret && sharedSecret === configuredSecret) {
+      return true
+    }
+    // If no webhook secrets are configured at all, reject
+    return false
+  })()
+
+  if (!isAuthorized) {
+    return NextResponse.json({ error: 'Unauthorized webhook' }, { status: 401 })
+  }
+
+  let body
+  try {
+    body = JSON.parse(rawBody)
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  // Resend format: { type: 'email.delivered'|'email.bounced', email: { id: '...' } }
   let relayMessageId: string | null = null
   let eventType: string = ''
 
-  // Resend format
   if (body?.email?.id) {
     relayMessageId = body.email.id
     eventType = body.type || ''
-  }
-  // Brevo format
-  else if (body?.['message-id']) {
+  } else if (body?.['message-id']) {
     relayMessageId = body['message-id']
     eventType = body.event || ''
   }
 
   if (!relayMessageId) {
-    return NextResponse.json({ error: 'No message ID found in webhook payload' }, { status: 400 })
+    return NextResponse.json({ error: 'No message ID in payload' }, { status: 400 })
   }
 
-  // Find the sent message by relayMessageId
-  const sentMessage = await db.sentMessage.findFirst({
-    where: { relayMessageId },
-  })
+  const sentMessage = await db.sentMessage.findFirst({ where: { relayMessageId } })
   if (!sentMessage) {
-    // Not a tracked message (might be a Temp Mode send) — acknowledge but don't error
-    return NextResponse.json({ ok: true, message: 'Message not tracked (Temp Mode send)' })
+    return NextResponse.json({ ok: true, message: 'Message not tracked' })
   }
 
-  // Map event type to status
   const isDelivered = /delivered/i.test(eventType)
   const isBounce = /bounce/i.test(eventType)
   const isComplaint = /complaint|spam/i.test(eventType)
@@ -50,10 +105,7 @@ export async function POST(req: NextRequest) {
   if (isDelivered) {
     await db.sentMessage.update({
       where: { id: sentMessage.id },
-      data: {
-        status: 'delivered',
-        deliveredAt: new Date(),
-      },
+      data: { status: 'delivered', deliveredAt: new Date() },
     })
     console.info(`[webhook] message ${sentMessage.id} marked delivered`)
   } else if (isBounce) {
@@ -69,9 +121,7 @@ export async function POST(req: NextRequest) {
   } else if (isComplaint) {
     await db.sentMessage.update({
       where: { id: sentMessage.id },
-      data: {
-        status: 'complained',
-      },
+      data: { status: 'complained' },
     })
     console.info(`[webhook] message ${sentMessage.id} marked complained`)
   }

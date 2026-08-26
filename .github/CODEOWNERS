@@ -1,0 +1,7 @@
+# These owners will be automatically requested for review
+# when their code is changed in a pull request.
+#
+# Format: <path-pattern> <@username or team>
+#
+# Default owners for everything in the repository.
+* @Manash07Bhoi

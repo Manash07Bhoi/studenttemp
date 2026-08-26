@@ -184,7 +184,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     await fetch('http://localhost:3003/internal/broadcast', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': process.env.INTERNAL_API_SECRET || 'studenttemp-internal-dev-only',
+      },
       body: JSON.stringify({
         email: inbox.email,
         sessionId,
