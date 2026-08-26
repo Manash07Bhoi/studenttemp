@@ -34,14 +34,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Body too long' }, { status: 400 })
   }
 
-  // Verify inbox ownership
+  // Verify inbox ownership — supports both Temp Mode (sessionId) and Account Mode (accountId)
   const inbox = await db.inbox.findUnique({ where: { id: inboxId } })
-  if (!inbox || inbox.sessionId !== sessionId || inbox.status !== 'active') {
+  if (!inbox || inbox.status !== 'active') {
+    return NextResponse.json({ error: 'Inbox not found or expired' }, { status: 404 })
+  }
+  // Check ownership: either session matches (Temp Mode) or account matches (Account Mode)
+  const accountAccountId = await getAccountId()
+  if (inbox.sessionId !== sessionId && inbox.accountId !== accountAccountId) {
     return NextResponse.json({ error: 'Inbox not found or expired' }, { status: 404 })
   }
 
-  // Phase 13.4: Check if this is an Account Mode inbox — if so, get the accountId
-  const accountId = inbox.accountId || await getAccountId()
+  // Phase 13.4: Use the account ID for SentMessage tracking
+  const accountId = inbox.accountId || accountAccountId
 
   // Send via real SMTP. We connect to the mail-service's SMTP server on port 2525
   // and submit a real RFC 5322 message. The mail-service accepts it as if it came
