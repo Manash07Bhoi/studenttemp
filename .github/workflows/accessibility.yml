@@ -38,10 +38,8 @@ jobs:
           done
 
       - name: Run axe-core accessibility tests
-        uses: deque-software/axe-action@v2
-        with:
-          url: http://localhost:3000
-          tags: wcag2a,wcag2aa
+        run: |
+          npx @axe-core/cli@latest http://localhost:3000 --tags wcag2a,wcag2aa
 
       - name: Kill server
         if: always()

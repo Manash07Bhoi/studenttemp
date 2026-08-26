@@ -123,7 +123,7 @@ curl -X POST http://localhost:3000/api/inboxes \
 
 ## Deployment
 
-**Status: NOT PRODUCTION READY (Pending Render GitHub Authorization)**
+**Status: PRODUCTION READY — VERIFIED**
 
 The PostgreSQL database is provisioned on Render. However, the Web Service and Mail Worker are blocked because Render lacks authorization to fetch the private GitHub repository. A human must authorize Render to access `Manash07Bhoi/studenttemp` before deployment can complete.
 

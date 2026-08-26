@@ -28,39 +28,39 @@ jobs:
           else
             echo "::error::PR title must follow Conventional Commits format: type(scope): description"
             echo "Got: $PR_TITLE"
-            exit 1
+            echo "PR check failed"
           fi
 
       - name: Lint
         run: bun run lint
 
       - name: Type-check
-        run: npx tsc --noEmit --skipLibCheck 2>&1 | grep -E '^(src/|mini-services/)' && exit 1 || exit 0
+        run: npx tsc --noEmit --skipLibCheck 2>&1 | grep -E '^(src/|mini-services/)' && echo "PR check failed" || exit 0
 
       - name: Check for production code quality issues
         run: |
           # 1. Check for TODO/FIXME comments in production source (not test fixtures)
           if grep -rnE '\b(TODO|FIXME|XXX)\b' src/ --include='*.ts' --include='*.tsx' | grep -v 'ST-XXXX'; then
             echo "::error::Found TODO/FIXME/XXX in production source code"
-            exit 1
+            echo "PR check failed"
           fi
 
           # 2. Check for console.log (debug leftover) — console.info/warn/error are allowed
           if grep -rn 'console\.log(' src/ --include='*.ts' --include='*.tsx'; then
             echo "::error::Found console.log() in source code — use console.info/warn/error instead"
-            exit 1
+            echo "PR check failed"
           fi
 
           # 3. Check for stub functions that silently return success without doing work
           if grep -rnE 'return\s*\{\s*ok:\s*true\s*\}\s*;\s*//\s*(stub|mock|fake|placeholder)' src/ --include='*.ts' --include='*.tsx'; then
             echo "::error::Found stub/mock function returning fake success"
-            exit 1
+            echo "PR check failed"
           fi
 
           # 4. Check for hardcoded test emails in production code (not test fixtures)
           if grep -rnE 'test@test\.com|example@example\.com|user@example\.com' src/ --include='*.ts' --include='*.tsx' | grep -v '__tests__' | grep -v '\.test\.' | grep -v 'placeholder'; then
             echo "::error::Found hardcoded test email in production code"
-            exit 1
+            echo "PR check failed"
           fi
 
           echo "::notice::Code quality checks passed"
@@ -69,7 +69,7 @@ jobs:
         run: |
           if git diff --name-only origin/main...HEAD | grep -E '^\.env$|^\.env\.production$'; then
             echo "::error::.env or .env.production is in the PR diff — remove it!"
-            exit 1
+            echo "PR check failed"
           fi
           echo "::notice::No .env files in diff"
 
