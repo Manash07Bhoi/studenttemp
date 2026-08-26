@@ -1,0 +1,67 @@
+# Render Configuration — StudentTemp
+# https://render.com/docs/blueprint-spec
+# 
+# This file tells Render exactly how to deploy the project.
+# Render reads this automatically when you connect your GitHub repo.
+
+# ============================================================
+# Service 1: Next.js Web Application (the website + API)
+# ============================================================
+services:
+  - type: web
+    name: studenttemp-web
+    runtime: node
+    plan: free
+    buildCommand: bun install && bun run build
+    startCommand: bun run start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: studenttemp-db
+          property: connectionString
+      - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+        value: BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0
+      - key: VAPID_PRIVATE_KEY
+        value: VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI
+      - key: SITE_ACCESS_PASSWORD_HASH
+        value: 89ca16241208394e00585912872ecf65b47a8ef3f549355bc6d4a8dc0ca49cca
+      - key: SMTP_RELAY_HOST
+        value: localhost
+      - key: SMTP_RELAY_PORT
+        value: "2525"
+      - key: TRUSTED_PROXY_HOSTS
+        value: 127.0.0.1,::1,localhost
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_BASE_URL
+        value: https://studenttemp-web.onrender.com
+      # Set these manually in Render dashboard after first deploy:
+      # - RESEND_API_KEY (from resend.com)
+      # - TOTP_ENCRYPTION_KEY (generate with: openssl rand -hex 32)
+
+  # ============================================================
+  # Service 2: Mail Service (SMTP + WebSocket)
+  # ============================================================
+  - type: worker
+    name: studenttemp-mail
+    runtime: node
+    plan: free
+    buildCommand: cd mini-services/mail-service && bun install
+    startCommand: cd mini-services/mail-service && bun run index.ts
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: studenttemp-db
+          property: connectionString
+      - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+        value: BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0
+      - key: VAPID_PRIVATE_KEY
+        value: VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI
+
+# ============================================================
+# Database: PostgreSQL
+# ============================================================
+databases:
+  - name: studenttemp-db
+    plan: free
+    ipAllowList: []
