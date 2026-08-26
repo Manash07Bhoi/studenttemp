@@ -1,5 +1,5 @@
-import { AppShell } from '@/components/app-shell'
+import { SiteAccessGateWrapper } from '@/components/site-access-gate-wrapper'
 
 export default function Home() {
-  return <AppShell />
+  return <SiteAccessGateWrapper />
 }

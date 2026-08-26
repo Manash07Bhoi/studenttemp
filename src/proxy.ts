@@ -47,6 +47,7 @@ export function proxy(req: NextRequest) {
   // and requires the exported function to be named `proxy` (or be the default export).
   const proto = req.headers.get('x-forwarded-proto')
   const trusted = isTrustedProxy(req)
+  const pathname = req.nextUrl.pathname
 
   // Build the response we'll hand back to Next.
   const res = NextResponse.next()
@@ -64,6 +65,30 @@ export function proxy(req: NextRequest) {
     // Strip forwarded headers from untrusted peers so they cannot lie.
     res.headers.delete('x-forwarded-proto')
     res.headers.delete('x-forwarded-for')
+  }
+
+  // ---------- Site access gate (testing period) ----------
+  // If a password hash is configured, block API access without the st_access cookie.
+  // The gate page itself is allowed (so the user can enter the password).
+  // Static assets and _next/* are also allowed (so the gate page renders correctly).
+  if (process.env.SITE_ACCESS_PASSWORD_HASH) {
+    const isGateAPI = pathname.startsWith('/api/site-access')
+    const isStatic = pathname.startsWith('/_next/') || pathname.startsWith('/sw.js') || pathname.startsWith('/manifest.json') || pathname === '/favicon.ico' || pathname === '/logo.svg' || pathname === '/robots.txt'
+    if (!isGateAPI && !isStatic) {
+      const accessCookie = req.cookies.get('st_access')?.value
+      if (!accessCookie || accessCookie.length < 32) {
+        // For API routes, return 401 JSON
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json(
+            { error: 'Site access required', code: 'SITE_ACCESS_DENIED' },
+            { status: 401 }
+          )
+        }
+        // For page requests, let the page render — the client-side gate
+        // component will handle showing the password screen. We don't
+        // redirect to avoid adding a new route.
+      }
+    }
   }
 
   return res

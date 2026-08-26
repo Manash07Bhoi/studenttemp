@@ -74,6 +74,8 @@ const ALLOWED_SOCKET_ORIGINS = (process.env.PUBLIC_BASE_URL || '')
     // Direct Next.js (no proxy — plain HTTP, only for local development)
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    // Published testing URL
+    'https://studentemp.space-z.ai',
   ])
 
 const httpServer = createServer()
