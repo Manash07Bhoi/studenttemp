@@ -195,11 +195,11 @@ dig MX studenttemp.com
 $ git log --all -p -- .env | grep VAPID
 +NEXT_PUBLIC_VAPID_PUBLIC_KEY=BFrVmVtbXGLKVihSy3fMpdGllOgt26L1EYkeZJW5jzSqoq7oXX-OzcOCOQXPytUgT7C5JomIU05XNFjl0nOAros
 +***REMOVED***
--NEXT_PUBLIC_VAPID_PUBLIC_KEY=BLa1Bz4MYgNUOkMpsbSKVD0ctcZ8OFSppWC4Gepr7cvwSeKQIRtmOB-BUDC5kBp4fVgHMEqPXKVSDiCdZMV5p1o
+-NEXT_PUBLIC_VAPID_PUBLIC_KEY=[REDACTED — rotated and purged]
 -***REMOVED***
 ```
 
-Both the OLD keys (`pZ6Fjk...`) and the NEW rotated keys (`XGIUR...`) are in git history. Both are compromised.
+Both the OLD keys (`[REDACTED].`) and the NEW rotated keys (`[REDACTED].`) are in git history. Both are compromised.
 
 **Why I cannot fix it automatically:**
 - `git filter-repo` and `BFG Repo-Cleaner` are not installed in the sandbox
@@ -221,7 +221,7 @@ cd studenttemp-mirror.git
 cat > /tmp/secrets-to-remove.txt << 'EOF'
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=BFrVmVtbXGLKVihSy3fMpdGllOgt26L1EYkeZJW5jzSqoq7oXX-OzcOCOQXPytUgT7C5JomIU05XNFjl0nOAros
 ***REMOVED***
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=BLa1Bz4MYgNUOkMpsbSKVD0ctcZ8OFSppWC4Gepr7cvwSeKQIRtmOB-BUDC5kBp4fVgHMEqPXKVSDiCdZMV5p1o
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=[REDACTED — rotated and purged]
 ***REMOVED***
 EOF
 

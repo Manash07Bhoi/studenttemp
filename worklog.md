@@ -1151,7 +1151,7 @@ Task: Configure published URL + add site-wide password gate for testing.
 ### 3. Password
 - Password: `StudentTemp#8800Roshan`
 - Stored as SHA-256 hash (not plaintext) in `.env`
-- Hash: `89ca16241208394e00585912872ecf65b47a8ef3f549355bc6d4a8dc0ca49cca`
+- Hash: `[REDACTED — set in .env locally]`
 - Note: Used SHA-256 instead of bcrypt because bcrypt hashes contain `$` characters that dotenv interpolates as variable references
 
 ## Verification (curl tests, all passed)
@@ -1307,7 +1307,7 @@ The following community / project files are **MISSING** from the repository:
 - The `prisma/seed.ts` script is not wired into `package.json` scripts (no `"db:seed"` command). Per Prisma convention, should add `"prisma": { "seed": "tsx prisma/seed.ts" }` to `package.json` but `tsx` is not installed.
 
 #### 3.5 `render.yaml`
-- Lines 23-25 — **CRITICAL: Hardcodes real VAPID private key** `VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI` in plaintext. Same key is in `.env.production` which is committed to git (see §4.1).
+- Lines 23-25 — **CRITICAL: Hardcodes real VAPID private key** `[REDACTED — see .env locally]` in plaintext. Same key is in `.env.production` which is committed to git (see §4.1).
 - Lines 26-27 — Hardcodes `SITE_ACCESS_PASSWORD_HASH` in plaintext. Although it's a hash, exposing it in a checked-in YAML file makes it publicly auditable; combined with no rate limit on `/api/site-access/verify`, this is a brute-force vector.
 - Lines 29-33 — Sets `SMTP_RELAY_HOST=localhost` and `TRUSTED_PROXY_HOSTS=127.0.0.1,::1,localhost`. On Render's web service, `localhost` SMTP won't reach the worker service (different process/container). The `studenttemp-mail` worker is on a separate service; the web service can't reach it via `localhost`. Needs an internal service URL.
 - The `startCommand: bun run start` (line 16) runs `bun .next/standalone/server.js`, but `package.json:12` sets `NODE_ENV=production`. Render's free tier sleeps after 15 min of inactivity — the SMTP server won't accept mail during sleep.

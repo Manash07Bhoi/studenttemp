@@ -2,33 +2,36 @@
 
 **Privacy-first temporary email platform.** Generate a disposable inbox in seconds, receive verification codes, protect your real address. No sign-up, no tracking.
 
-**Built By:** [Roshan](https://github.com/roshan) — Full-stack developer
+**Built By:** Roshan — Full-stack developer
+
+**Contributor:** ManashBhoi ([@Manash07Bhoi](https://github.com/Manash07Bhoi))
 
 ---
 
 ## Features
 
-- ✅ **Real SMTP server** (port 2525) with SPF/DKIM/DMARC verification via `mailauth`
-- ✅ **94 domains** across 5 categories (Academic .edu/.ac.in, India Student, India General, International, Privacy)
-- ✅ **7 i18n languages** (English, Hindi, Tamil, Bengali, Telugu, Marathi, Odia)
-- ✅ **Real-time WebSocket** (Socket.IO) for instant message delivery
-- ✅ **HTML email sanitization** (DOMPurify in sandboxed iframe)
-- ✅ **PWA** with service worker, Web Push notifications (real VAPID keys)
-- ✅ **Account Mode** — signup, login, 2FA (real TOTP RFC 6238), time-limited mailboxes
-- ✅ **Admin dashboard** API with system stats
-- ✅ **32+ features**: threading, reply/forward, bulk actions, search, swipe gestures, command palette, App Lock (WebAuthn), and more
+- **Real SMTP server** (port 2525) with SPF/DKIM/DMARC verification via `mailauth`
+- **94 domains** across 5 categories (Academic, India Student, India General, International, Privacy)
+- **7 i18n languages** (English, Hindi, Tamil, Bengali, Telugu, Marathi, Odia)
+- **Real-time WebSocket** (Socket.IO) for instant message delivery
+- **HTML email sanitization** (DOMPurify in sandboxed iframe)
+- **PWA** with service worker, Web Push notifications (VAPID)
+- **Account Mode** — signup, login, 2FA (TOTP RFC 6238 via AES-256-GCM encrypted secrets), time-limited mailboxes
+- **Admin dashboard** API with admin authorization
+- **Site access gate** — password-protected for testing period
+- **32+ features**: threading, reply/forward, bulk actions, search, swipe gestures, command palette, App Lock (WebAuthn), labels, filters, contacts, vacation responder, and more
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Framework | Next.js 16 (App Router, Turbopack) |
-| Language | TypeScript 5 (strict mode) |
+| Language | TypeScript 5 |
 | Styling | Tailwind CSS 4 + shadcn/ui |
-| Database | Prisma ORM + SQLite (PostgreSQL-compatible) |
-| Real-time | Socket.IO (port 3003) |
-| SMTP | `smtp-server` + `mailparser` + `mailauth` (port 2525) |
-| Auth | Custom cookie-based (bcrypt + TOTP) |
+| Database | Prisma ORM + SQLite (dev) / PostgreSQL (prod) |
+| Real-time | Socket.IO |
+| SMTP | `smtp-server` + `mailparser` + `mailauth` |
+| Auth | Custom cookie-based (bcrypt + TOTP AES-256-GCM) |
 | PWA | Service Worker + Web Push (VAPID) |
 | Reverse Proxy | Caddy (TLS termination) |
 
@@ -44,89 +47,131 @@ bun run db:push
 # Start dev server (port 3000)
 bun run dev
 
-# Start mail-service (port 2525 + 3003)
+# In another terminal, start mail-service (port 2525 + 3003)
 cd mini-services/mail-service
 bun install
-bun run dev
+bun run index.ts
 ```
 
-The app runs at `http://localhost:3000`. The Caddy gateway is at `http://localhost:81`.
+The app runs at `http://localhost:3000`.
 
 ## Environment Variables
 
-Create a `.env` file (never committed to git):
+Copy `.env.example` to `.env` and fill in real values. Key variables:
 
-```env
-DATABASE_URL=file:/home/z/my-project/db/custom.db
+| Variable | Purpose | How to Generate |
+|----------|---------|----------------|
+| `DATABASE_URL` | Database connection | SQLite for dev, PostgreSQL URL for prod |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web Push public key | `npx web-push generate-vapid-keys` |
+| `VAPID_PRIVATE_KEY` | Web Push private key | Same command as above |
+| `SITE_ACCESS_PASSWORD_HASH` | Site gate password (SHA-256) | `echo -n 'yourpassword' \| sha256sum` |
+| `TOTP_ENCRYPTION_KEY` | 2FA secret encryption (32 bytes hex) | `openssl rand -hex 32` |
+| `RESEND_API_KEY` | Outbound email relay | Sign up at resend.com |
+| `PUBLIC_BASE_URL` | Your deployment URL | Set after deploy |
 
-# VAPID keys (generate with: npx web-push generate-vapid-keys)
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=<your-public-key>
-VAPID_PRIVATE_KEY=<your-private-key>
+See `.env.example` for the complete list.
 
-# SMTP relay (internal loopback)
-SMTP_RELAY_HOST=localhost
-SMTP_RELAY_PORT=2525
+## CI/CD
 
-# Trusted proxy
-TRUSTED_PROXY_HOSTS=127.0.0.1,::1,localhost
-PUBLIC_BASE_URL=https://localhost:81
-NODE_ENV=development
-```
+The project includes 10 GitHub Actions workflows:
 
-## Architecture
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| CI | push, PR | Lint + typecheck + build |
+| Security | push, PR, weekly | Dependency audit + secret scan + CodeQL SAST |
+| PR Validation | PR | Conventional Commits + code quality + .env guard |
+| Performance | push, PR | Bundle size measurement |
+| Code Quality | push, PR | ESLint strict (max-warnings=0) |
+| Release | Tag `v*.*.*` | GitHub Release with changelog |
+| SBOM | dep changes, release | CycloneDX software bill of materials |
+| Accessibility | PR | axe-core WCAG 2.0 A/AA testing |
+| E2E | push, PR | Playwright test framework |
+| Smoke Test | After release | Post-deployment HTTPS + API verification |
 
-```
-Browser → Caddy (:81, TLS) → Next.js (:3000) → Prisma → SQLite
-                          → mail-service (:2525 SMTP, :3003 Socket.IO)
-```
+## Security
 
-- **Caddy** terminates TLS and forwards `X-Forwarded-Proto` to Next.js
-- **Next.js** serves the UI and API routes
-- **mail-service** receives real SMTP mail and pushes via WebSocket
-- **Prisma** provides type-safe database access
+- **Secure cookies**: HttpOnly, Secure, SameSite=Strict
+- **8 security headers**: HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP, CORP
+- **TOTP 2FA**: AES-256-GCM encrypted secrets (not XOR)
+- **Admin authorization**: Email allowlist with DB-verified identity
+- **Webhook verification**: HMAC-SHA256 with timing-safe comparison
+- **Rate limiting**: On auth, signup, login, inbox creation, site access
+- **HTML sanitization**: DOMPurify strips scripts from email HTML
+- **File scanner**: Magic bytes validation, blocks executables
+- **Trusted proxy middleware**: Strips forged headers from non-proxy peers
+- **Internal API authentication**: Shared secret on broadcast endpoint
+
+See `SECURITY.md` for the full security policy and `docs/audit/` for audit reports.
 
 ## Testing
 
 ```bash
-# Lint
+# Lint (0 errors required)
 bun run lint
 
-# Type check
-npx tsc --noEmit
+# Type check (0 production errors required)
+npx tsc --noEmit --skipLibCheck
 
 # Security audit
 bun audit
 
-# Create inbox via API
+# API smoke test
 curl -X POST http://localhost:3000/api/inboxes \
   -H 'Content-Type: application/json' \
   -d '{"domain":"studentbox.in","lifetimeMinutes":10}'
-
-# Send test email
-curl -X POST http://localhost:3000/api/inboxes/<inbox-id>/test-mail
 ```
 
 ## Deployment
 
-See `docs/HTTPS-AUDIT.md` for TLS configuration and `docs/decisions/OPEN-QUESTIONS.md` for architectural decisions requiring human sign-off.
+### Render (recommended — free tier supports both web + worker)
 
-**Production checklist:**
-1. Set `NODE_ENV=production`
-2. Set `PUBLIC_BASE_URL=https://your-domain.com`
-3. Provision PostgreSQL and update `DATABASE_URL`
-4. Configure Caddy with real domain (Let's Encrypt auto)
-5. Install ClamAV for attachment scanning
-6. Set up MX records pointing to your mail server
-7. Rotate VAPID keys (do not reuse sandbox keys)
+1. Create a PostgreSQL database on Render
+2. Create a Web Service from this repo (build: `bun install && bun run build`, start: `bun run start`)
+3. Create a Background Worker for the mail-service
+4. Set environment variables (see `.env.example`)
+5. Push database schema: `bun run db:push`
 
-## Credits
+See `docs/deploy/DEPLOYMENT-RUNBOOK.md` for the complete guide.
 
-**Developed by Roshan** — Full-stack developer
+### When you have a domain
 
-**Contributor:** ManashBhoi ([@Manash07Bhoi](https://github.com/Manash07Bhoi))
+- Configure MX/SPF/DKIM/DMARC records (see `docs/deploy/MX-AND-CADDY-GUIDE.md`)
+- Set up Postfix on port 25 relaying to the mail-service on port 2525
+- Configure Caddy with your domain for automatic HTTPS
 
-Built with Next.js, Prisma, Socket.IO, Tailwind CSS, and shadcn/ui.
+## Known Limitations
+
+- **External mail receiving**: Requires a real domain with MX records and Postfix on port 25. Until then, use the "Receive Mail" bridge API to simulate inbound mail.
+- **Real-time push on serverless**: The mail-service (SMTP + Socket.IO) requires a persistent process — not compatible with Cloudflare Pages or Vercel. Use Render, Railway, or a VPS.
+- **Screenshots**: Not included in the repository. Run the app locally or deploy it to capture real screenshots for your README.
+
+## Architecture
+
+```
+Browser → Caddy (TLS) → Next.js (:3000) → Prisma → SQLite/PostgreSQL
+                      → mail-service (:2525 SMTP, :3003 Socket.IO)
+```
+
+## Project Structure
+
+See `docs/COMPLETE-PROJECT-GUIDE.md` for a beginner-friendly explanation of every file and folder.
+
+## Contributing
+
+See `CONTRIBUTING.md`. All contributions must pass lint, typecheck, and PR validation checks.
+
+## Release Process
+
+1. Update `CHANGELOG.md`
+2. Tag: `git tag v1.0.1`
+3. Push tag: `git push origin v1.0.1`
+4. The Release workflow automatically builds, verifies, and creates a GitHub Release
 
 ## License
 
-Private project. All rights reserved.
+MIT License — see `LICENSE`.
+
+## Support
+
+- GitHub Issues: https://github.com/Manash07Bhoi/studenttemp/issues
+- See `SUPPORT.md` for more options

@@ -1,12 +1,11 @@
 # Render Configuration — StudentTemp
 # https://render.com/docs/blueprint-spec
-# 
-# This file tells Render exactly how to deploy the project.
-# Render reads this automatically when you connect your GitHub repo.
+#
+# This file tells Render how to deploy the project.
+# Secrets are NOT hardcoded here — they must be set in the Render dashboard
+# (Settings → Environment Variables) or via the Render CLI.
+# Use .env.example as a reference for which variables to set.
 
-# ============================================================
-# Service 1: Next.js Web Application (the website + API)
-# ============================================================
 services:
   - type: web
     name: studenttemp-web
@@ -19,29 +18,22 @@ services:
         fromDatabase:
           name: studenttemp-db
           property: connectionString
-      - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
-        value: BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0
-      - key: VAPID_PRIVATE_KEY
-        value: VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI
-      - key: SITE_ACCESS_PASSWORD_HASH
-        value: 89ca16241208394e00585912872ecf65b47a8ef3f549355bc6d4a8dc0ca49cca
+      - key: NODE_ENV
+        value: production
+      - key: TRUSTED_PROXY_HOSTS
+        value: 127.0.0.1,::1,localhost
       - key: SMTP_RELAY_HOST
         value: localhost
       - key: SMTP_RELAY_PORT
         value: "2525"
-      - key: TRUSTED_PROXY_HOSTS
-        value: 127.0.0.1,::1,localhost
-      - key: NODE_ENV
-        value: production
-      - key: PUBLIC_BASE_URL
-        value: https://studenttemp-web.onrender.com
-      # Set these manually in Render dashboard after first deploy:
+      # The following must be set manually in Render dashboard:
+      # - NEXT_PUBLIC_VAPID_PUBLIC_KEY (generate with: npx web-push generate-vapid-keys)
+      # - VAPID_PRIVATE_KEY (from the same command — NEVER commit)
+      # - SITE_ACCESS_PASSWORD_HASH (SHA-256 of your password)
       # - RESEND_API_KEY (from resend.com)
       # - TOTP_ENCRYPTION_KEY (generate with: openssl rand -hex 32)
+      # - PUBLIC_BASE_URL (set after first deploy to your Render URL)
 
-  # ============================================================
-  # Service 2: Mail Service (SMTP + WebSocket)
-  # ============================================================
   - type: worker
     name: studenttemp-mail
     runtime: node
@@ -53,14 +45,10 @@ services:
         fromDatabase:
           name: studenttemp-db
           property: connectionString
-      - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
-        value: BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0
-      - key: VAPID_PRIVATE_KEY
-        value: VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI
+      # The following must be set manually in Render dashboard:
+      # - NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      # - VAPID_PRIVATE_KEY
 
-# ============================================================
-# Database: PostgreSQL
-# ============================================================
 databases:
   - name: studenttemp-db
     plan: free

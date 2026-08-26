@@ -84,13 +84,13 @@ Scanned for: `TODO`, `FIXME`, `XXX`, `mock`, `dummy`, `fake`, `placeholder`, `co
 
 ```
 git log --all -p -- .env | grep VAPID
-→ -NEXT_PUBLIC_VAPID_PUBLIC_KEY=BLa1Bz4MYgNUOkMpsbSKVD0ctcZ8OFSppWC4Gepr7cvwSeKQIRtmOB-BUDC5kBp4fVgHMEqPXKVSDiCdZMV5p1o
+→ -NEXT_PUBLIC_VAPID_PUBLIC_KEY=[REDACTED — rotated and purged]
 → -***REMOVED***
 ```
 
 **Finding:** VAPID keys (public + private) were committed to git in earlier commits and remain in git history. They were later removed from `.env` (current `.env` only has `DATABASE_URL`), but the private key is still in the git history.
 
-**Risk:** The VAPID private key (`pZ6FjkRfND_wQK-PYRDYM8W3Y9JQAd8-JzXeXXZYfT0`) is compromised. Anyone with access to the repo history can extract it and send unauthorized Web Push notifications to subscribed users.
+**Risk:** The VAPID private key (`[REDACTED — rotated and purged]`) is compromised. Anyone with access to the repo history can extract it and send unauthorized Web Push notifications to subscribed users.
 
 **Action required (per Rule 3):** The VAPID keys must be ROTATED:
 1. Generate new keys: `npx web-push generate-vapid-keys`

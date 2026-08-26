@@ -103,7 +103,7 @@ Set these (the script prints them for you to copy):
 | `DATABASE_URL` | Your Neon connection string |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | (printed by script) |
 | `VAPID_PRIVATE_KEY` | (printed by script) |
-| `SITE_ACCESS_PASSWORD_HASH` | `89ca16241208394e00585912872ecf65b47a8ef3f549355bc6d4a8dc0ca49cca` |
+| `SITE_ACCESS_PASSWORD_HASH` | `[REDACTED — set in .env locally]` |
 | `RESEND_API_KEY` | Your Resend API key |
 | `PUBLIC_BASE_URL` | Your `*.pages.dev` URL |
 | `NODE_ENV` | `production` |

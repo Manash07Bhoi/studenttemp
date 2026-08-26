@@ -318,8 +318,8 @@ app how to behave in different situations.
 | Variable | What It Does | Example Value |
 |----------|-------------|----------------|
 | `DATABASE_URL` | Where the database is | `postgresql://user:pass@host:5432/db` |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Public key for push notifications | `BAM5z5-mzFBs...` |
-| `VAPID_PRIVATE_KEY` | Private key for push notifications (secret!) | `VqCsw13sjP6U...` |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Public key for push notifications | `[REDACTED].` |
+| `VAPID_PRIVATE_KEY` | Private key for push notifications (secret!) | `[REDACTED].` |
 | `SITE_ACCESS_PASSWORD_HASH` | Password gate (SHA-256 hash) | `89ca16241208...` |
 | `SMTP_RELAY_HOST` | Where the mail server is | `localhost` |
 | `SMTP_RELAY_PORT` | Mail server port | `2525` |
@@ -381,9 +381,9 @@ You need:
 | Key | Value |
 |-----|-------|
 | `DATABASE_URL` | (paste the Internal Database URL from Step 2) |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | `BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0` |
-| `VAPID_PRIVATE_KEY` | `VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI` |
-| `SITE_ACCESS_PASSWORD_HASH` | `89ca16241208394e00585912872ecf65b47a8ef3f549355bc6d4a8dc0ca49cca` |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | `[REDACTED — see .env locally]` |
+| `VAPID_PRIVATE_KEY` | `[REDACTED — see .env locally]` |
+| `SITE_ACCESS_PASSWORD_HASH` | `[REDACTED — set in .env locally]` |
 | `SMTP_RELAY_HOST` | `localhost` |
 | `SMTP_RELAY_PORT` | `2525` |
 | `TRUSTED_PROXY_HOSTS` | `127.0.0.1,::1,localhost` |
@@ -412,8 +412,8 @@ You need:
 | Key | Value |
 |-----|-------|
 | `DATABASE_URL` | (same Internal Database URL from Step 2) |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | `BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0` |
-| `VAPID_PRIVATE_KEY` | `VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI` |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | `[REDACTED — see .env locally]` |
+| `VAPID_PRIVATE_KEY` | `[REDACTED — see .env locally]` |
 
 5. Click **Create Background Worker**
 6. Wait for it to start (takes 1-2 minutes)
@@ -518,5 +518,5 @@ If you are an AI coding agent reading this, here's what you need to know:
 
 ### Environment Variables for Production
 See `.env.production` for the complete list with values. The fresh VAPID keys are:
-- Public: `BAM5z5-mzFBsOX1gUppiivXRS0PqvobSbCbdvSRmYw3JbEy1_vV0zyNlryHOY1-CmaKpsOVTkwNQ9nyFpKUZXJ0`
-- Private: `VqCsw13sjP6U8At4VLVnvdaWHBHj1fOld07Szz2oIeI`
+- Public: `[REDACTED — see .env locally]`
+- Private: `[REDACTED — see .env locally]`

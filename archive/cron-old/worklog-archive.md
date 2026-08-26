@@ -1824,8 +1824,8 @@ Task: Configure real VAPID keys for Web Push, wire push delivery into mail-servi
 
 Work Log:
 - Generated real VAPID key pair via `npx web-push generate-vapid-keys`:
-  - Public Key: BLa1Bz4MYgNUOkMpsbSKVD0ctcZ8OFSppWC4Gepr7cvwSeKQIRtmOB-BUDC5kBp4fVgHMEqPXKVSDiCdZMV5p1o
-  - Private Key: pZ6FjkRfND_wQK-PYRDYM8W3Y9JQAd8-JzXeXXZYfT0
+  - Public Key: [REDACTED — rotated and purged]
+  - Private Key: [REDACTED — rotated and purged]
 - Added both keys to `.env`:
   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (exposed to client for PushManager.subscribe)
   - `VAPID_PRIVATE_KEY` (server-only for signing push payloads)
