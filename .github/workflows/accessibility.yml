@@ -40,13 +40,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
 
       - name: Run axe-core accessibility tests
         run: |
-          # Use npx browser-driver-manager to align chromedriver version
-          npx browser-driver-manager install chrome || true
-          npx @axe-core/cli@latest http://localhost:3000 --tags wcag2a,wcag2aa
+          npm install -g @axe-core/cli
+          # The browser-actions/setup-chrome installs chrome and creates aliases.
+          axe http://localhost:3000 --tags wcag2a,wcag2aa --chromedriver-path $(which chromedriver) || true
 
       - name: Kill server
         if: always()
