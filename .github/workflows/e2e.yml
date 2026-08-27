@@ -12,6 +12,20 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: e2e-test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -25,13 +39,13 @@ jobs:
           bun run db:push
           bun run prisma/seed.ts || true
         env:
-          DATABASE_URL: "file:./e2e-test.db"
+          DATABASE_URL: "postgresql://user:password@localhost:5432/e2e-test"
 
       - name: Build
         run: bun run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-          DATABASE_URL: "file:./e2e-test.db"
+          DATABASE_URL: "postgresql://user:password@localhost:5432/e2e-test"
 
       - name: Run Playwright tests
         run: |
@@ -43,5 +57,5 @@ jobs:
           npx playwright install --with-deps chromium || true
           npx playwright test --reporter=list || echo "::notice::E2E tests not configured yet"
         env:
-          DATABASE_URL: "file:./e2e-test.db"
+          DATABASE_URL: "postgresql://user:password@localhost:5432/e2e-test"
           CI: "true"
