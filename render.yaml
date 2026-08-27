@@ -35,7 +35,7 @@ services:
       # - TOTP_ENCRYPTION_KEY (generate with: openssl rand -hex 32)
       # - PUBLIC_BASE_URL (set after first deploy to your Render URL)
 
-  - type: worker
+  - type: web
     name: studenttemp-mail
     runtime: node
     plan: free
