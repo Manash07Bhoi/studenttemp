@@ -39,7 +39,7 @@ services:
     name: studenttemp-mail
     runtime: node
     plan: free
-    buildCommand: bun install && bun run db:generate && cd mini-services/mail-service && bun install
+    buildCommand: cd mini-services/mail-service && bun install
     startCommand: cd mini-services/mail-service && bun run index.ts
     envVars:
       - key: DATABASE_URL
