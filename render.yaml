@@ -11,8 +11,8 @@ services:
     name: studenttemp-web
     runtime: node
     plan: free
-    buildCommand: bun install && bun run build
-    preDeployCommand: bun run prisma migrate deploy && bun run prisma/seed.ts
+    buildCommand: bun install && bun run db:generate && bun run build
+    preDeployCommand: bun run db:deploy && bun run prisma/seed.ts
     startCommand: bun run start
     envVars:
       - key: DATABASE_URL
@@ -31,7 +31,7 @@ services:
       # - NEXT_PUBLIC_VAPID_PUBLIC_KEY (generate with: npx web-push generate-vapid-keys)
       # - VAPID_PRIVATE_KEY (from the same command — NEVER commit)
       # - SITE_ACCESS_PASSWORD_HASH (SHA-256 of your password)
-      # - RESEND_API_KEY (from resend.com)
+      # - RESEND_API_KEY (from resend.com)(from resend.com)
       # - TOTP_ENCRYPTION_KEY (generate with: openssl rand -hex 32)
       # - PUBLIC_BASE_URL (set after first deploy to your Render URL)
 
@@ -39,7 +39,7 @@ services:
     name: studenttemp-mail
     runtime: node
     plan: free
-    buildCommand: cd mini-services/mail-service && bun install
+    buildCommand: cd mini-services/mail-service && bun install && bunx prisma generate
     startCommand: cd mini-services/mail-service && bun run index.ts
     envVars:
       - key: DATABASE_URL

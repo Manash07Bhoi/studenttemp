@@ -36,7 +36,7 @@ jobs:
 
       - name: Set up database
         run: |
-          bun run db:push
+          bun run db:deploy
           bun run prisma/seed.ts || true
         env:
           DATABASE_URL: "postgresql://user:password@localhost:5432/e2e-test"
