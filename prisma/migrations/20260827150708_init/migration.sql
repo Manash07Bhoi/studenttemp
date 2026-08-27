@@ -1,17 +1,19 @@
 -- CreateTable
 CREATE TABLE "Session" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "tokenHash" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "maxInboxes" INTEGER NOT NULL DEFAULT 5,
-    "locale" TEXT NOT NULL DEFAULT 'en'
+    "locale" TEXT NOT NULL DEFAULT 'en',
+
+    CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Domain" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "domain" TEXT NOT NULL,
     "pack" TEXT NOT NULL DEFAULT 'standard',
     "country" TEXT NOT NULL DEFAULT 'global',
@@ -19,12 +21,14 @@ CREATE TABLE "Domain" (
     "mxEnabled" BOOLEAN NOT NULL DEFAULT true,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "reputationScore" INTEGER NOT NULL DEFAULT 100,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Domain_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Inbox" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "publicId" TEXT NOT NULL,
     "sessionId" TEXT,
     "accountId" TEXT,
@@ -42,24 +46,25 @@ CREATE TABLE "Inbox" (
     "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "messageCount" INTEGER NOT NULL DEFAULT 0,
     "maxMessages" INTEGER NOT NULL DEFAULT 100,
-    CONSTRAINT "Inbox_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Inbox_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Inbox_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+
+    CONSTRAINT "Inbox_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "CustomAlias" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "localPart" TEXT NOT NULL,
     "domainId" TEXT NOT NULL,
     "lastUsedBySessionHash" TEXT,
     "cooldownUntil" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "CustomAlias_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Message" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "publicId" TEXT NOT NULL,
     "inboxId" TEXT NOT NULL,
     "smtpMessageId" TEXT,
@@ -84,12 +89,13 @@ CREATE TABLE "Message" (
     "isReported" BOOLEAN NOT NULL DEFAULT false,
     "scanStatus" TEXT NOT NULL DEFAULT 'clean',
     "externalResourcesBlocked" INTEGER NOT NULL DEFAULT 0,
-    CONSTRAINT "Message_inboxId_fkey" FOREIGN KEY ("inboxId") REFERENCES "Inbox" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "Message_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Attachment" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "messageId" TEXT NOT NULL,
     "filename" TEXT NOT NULL,
     "originalFilename" TEXT,
@@ -99,42 +105,47 @@ CREATE TABLE "Attachment" (
     "sha256" TEXT NOT NULL,
     "scanStatus" TEXT NOT NULL DEFAULT 'pending',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Attachment_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "Message" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "Attachment_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "AbuseReport" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "messageId" TEXT NOT NULL,
     "reason" TEXT NOT NULL,
     "category" TEXT NOT NULL DEFAULT 'spam',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "AbuseReport_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "Message" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "AbuseReport_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "RateLimitBucket" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "key" TEXT NOT NULL,
     "windowStart" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "count" INTEGER NOT NULL DEFAULT 0,
-    "limit" INTEGER NOT NULL
+    "limit" INTEGER NOT NULL,
+
+    CONSTRAINT "RateLimitBucket_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "NotificationSubscription" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "endpoint" TEXT NOT NULL,
     "keys" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
-    CONSTRAINT "NotificationSubscription_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "NotificationSubscription_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "AuditLog" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "sessionId" TEXT,
     "accountId" TEXT,
     "action" TEXT NOT NULL,
@@ -143,13 +154,13 @@ CREATE TABLE "AuditLog" (
     "metadata" TEXT NOT NULL DEFAULT '{}',
     "ipHash" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "AuditLog_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "AuditLog_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+
+    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Account" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "phone" TEXT,
     "passwordHash" TEXT NOT NULL,
@@ -164,12 +175,14 @@ CREATE TABLE "Account" (
     "status" TEXT NOT NULL DEFAULT 'active',
     "deletionScheduledAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Account_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Label" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "color" TEXT NOT NULL DEFAULT '#10b981',
@@ -177,37 +190,39 @@ CREATE TABLE "Label" (
     "isSystemLabel" BOOLEAN NOT NULL DEFAULT false,
     "parentLabelId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Label_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Label_parentLabelId_fkey" FOREIGN KEY ("parentLabelId") REFERENCES "Label" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+
+    CONSTRAINT "Label_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Filter" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "priorityOrder" INTEGER NOT NULL DEFAULT 0,
     "conditions" TEXT NOT NULL DEFAULT '[]',
     "actions" TEXT NOT NULL DEFAULT '[]',
     "stopProcessing" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Filter_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "Filter_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Contact" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "groupName" TEXT,
     "source" TEXT NOT NULL DEFAULT 'manual',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Contact_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "Contact_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Draft" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "to" TEXT NOT NULL DEFAULT '',
     "cc" TEXT NOT NULL DEFAULT '',
@@ -216,12 +231,13 @@ CREATE TABLE "Draft" (
     "body" TEXT NOT NULL DEFAULT '',
     "attachments" TEXT NOT NULL DEFAULT '[]',
     "lastSavedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Draft_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "Draft_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "SentMessage" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "to" TEXT NOT NULL,
     "cc" TEXT NOT NULL DEFAULT '',
@@ -241,44 +257,48 @@ CREATE TABLE "SentMessage" (
     "mdnReceivedAt" TIMESTAMP(3),
     "isConfidential" BOOLEAN NOT NULL DEFAULT false,
     "confidentialExpiresAt" TIMESTAMP(3),
-    CONSTRAINT "SentMessage_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "SentMessage_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "AccountAlias" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "aliasAddress" TEXT NOT NULL,
     "signature" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "AccountAlias_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "AccountAlias_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "LoginSession" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "deviceInfo" TEXT NOT NULL DEFAULT '',
     "ipHash" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "revoked" BOOLEAN NOT NULL DEFAULT false,
-    CONSTRAINT "LoginSession_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "LoginSession_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "BackupCode" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "codeHash" TEXT NOT NULL,
     "used" BOOLEAN NOT NULL DEFAULT false,
-    CONSTRAINT "BackupCode_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "BackupCode_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "VacationResponder" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
     "startDate" TIMESTAMP(3),
@@ -287,19 +307,21 @@ CREATE TABLE "VacationResponder" (
     "body" TEXT NOT NULL DEFAULT '',
     "contactsOnly" BOOLEAN NOT NULL DEFAULT false,
     "repliedTo" TEXT NOT NULL DEFAULT '[]',
-    CONSTRAINT "VacationResponder_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "VacationResponder_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "AppPassword" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "label" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastUsedAt" TIMESTAMP(3),
     "revoked" BOOLEAN NOT NULL DEFAULT false,
-    CONSTRAINT "AppPassword_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "AppPassword_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -409,3 +431,63 @@ CREATE UNIQUE INDEX "VacationResponder_accountId_key" ON "VacationResponder"("ac
 
 -- CreateIndex
 CREATE INDEX "AppPassword_accountId_idx" ON "AppPassword"("accountId");
+
+-- AddForeignKey
+ALTER TABLE "Inbox" ADD CONSTRAINT "Inbox_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Inbox" ADD CONSTRAINT "Inbox_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Inbox" ADD CONSTRAINT "Inbox_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Message" ADD CONSTRAINT "Message_inboxId_fkey" FOREIGN KEY ("inboxId") REFERENCES "Inbox"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Attachment" ADD CONSTRAINT "Attachment_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "Message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AbuseReport" ADD CONSTRAINT "AbuseReport_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "Message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationSubscription" ADD CONSTRAINT "NotificationSubscription_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Label" ADD CONSTRAINT "Label_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Label" ADD CONSTRAINT "Label_parentLabelId_fkey" FOREIGN KEY ("parentLabelId") REFERENCES "Label"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Filter" ADD CONSTRAINT "Filter_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Contact" ADD CONSTRAINT "Contact_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Draft" ADD CONSTRAINT "Draft_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SentMessage" ADD CONSTRAINT "SentMessage_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AccountAlias" ADD CONSTRAINT "AccountAlias_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LoginSession" ADD CONSTRAINT "LoginSession_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BackupCode" ADD CONSTRAINT "BackupCode_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "VacationResponder" ADD CONSTRAINT "VacationResponder_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AppPassword" ADD CONSTRAINT "AppPassword_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
