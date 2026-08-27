@@ -112,50 +112,7 @@ function unsubscribe(map: Map<string, Set<string>>, key: string, socketId: strin
 // Allows the Next.js API to inject messages (received via /api/inboxes/[id]/receive-mail)
 // and have them broadcast to all subscribed browser tabs via Socket.IO.
 // Security: requires a shared secret header to prevent unauthorized broadcasts.
-httpServer.on('request', (req, res) => {
-  if (req.method !== 'POST' || req.url !== '/internal/broadcast') return
-  // Verify the internal API secret
-  const authHeader = req.headers['x-internal-secret'] as string
-  const expectedSecret = process.env.INTERNAL_API_SECRET || 'studenttemp-internal-dev-only'
-  if (authHeader !== expectedSecret) {
-    res.writeHead(403, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Unauthorized' }))
-    return
-  }
-  let body = ''
-  req.on('data', (chunk) => { body += chunk; if (body.length > 1_000_000) body = '' })
-  req.on('end', () => {
-    try {
-      const { email, sessionId, event, payload } = JSON.parse(body)
-      let delivered = 0
-      // Broadcast to inbox subscribers
-      if (email) {
-        const set = subscribers.get(email)
-        if (set) {
-          for (const sid of set) {
-            io.to(sid).emit(event, payload)
-            delivered++
-          }
-        }
-      }
-      // Broadcast to session subscribers
-      if (sessionId) {
-        const sessSet = sessionSubscribers.get(sessionId)
-        if (sessSet) {
-          for (const sid of sessSet) {
-            io.to(sid).emit(event, payload)
-            delivered++
-          }
-        }
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, delivered }))
-    } catch (e) {
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: String(e) }))
-    }
-  })
-})
+
 
 io.on('connection', (socket) => {
   console.log(`[socket] connected: ${socket.id}`)
@@ -822,6 +779,41 @@ setInterval(async () => {
 import express from 'express';
 const app = express();
 app.use(express.json());
+
+// ---------- Internal broadcast endpoint ----------
+app.post('/internal/broadcast', (req, res) => {
+  const authHeader = req.headers['x-internal-secret']
+  const expectedSecret = process.env.INTERNAL_API_SECRET || 'studenttemp-internal-dev-only'
+  if (authHeader !== expectedSecret) {
+    return res.status(403).json({ error: 'Unauthorized' })
+  }
+  try {
+    const { email, sessionId, event, payload } = req.body
+    let delivered = 0
+    if (email) {
+      const set = subscribers.get(email)
+      if (set) {
+        for (const sid of set) {
+          io.to(sid).emit(event, payload)
+          delivered++
+        }
+      }
+    }
+    if (sessionId) {
+      const sessSet = sessionSubscribers.get(sessionId)
+      if (sessSet) {
+        for (const sid of sessSet) {
+          io.to(sid).emit(event, payload)
+          delivered++
+        }
+      }
+    }
+    return res.json({ ok: true, delivered })
+  } catch (err) {
+    return res.status(400).json({ error: 'Invalid body' })
+  }
+})
+
 
 // ---------- Internal HTTP API (for Resend webhook forwarding) ----------
 app.post('/api/internal/ingest-webhook', async (req, res) => {
