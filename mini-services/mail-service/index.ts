@@ -16,6 +16,16 @@ import "./check_db";
 import { SMTPServer } from 'smtp-server'
 import { simpleParser } from 'mailparser'
 import { authenticate, dkimVerify, spf as spfCheck } from 'mailauth'
+
+import { execSync } from 'child_process';
+try {
+  console.log("Running prisma generate on startup...");
+  execSync('bunx prisma generate', { stdio: 'inherit' });
+  console.log("Prisma generate completed.");
+} catch (err) {
+  console.error("Failed to generate Prisma client:", err);
+}
+
 import { PrismaClient } from '@prisma/client'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
