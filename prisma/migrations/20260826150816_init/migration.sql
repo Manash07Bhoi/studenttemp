@@ -2,9 +2,9 @@
 CREATE TABLE "Session" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "tokenHash" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "lastSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "expiresAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
     "maxInboxes" INTEGER NOT NULL DEFAULT 5,
     "locale" TEXT NOT NULL DEFAULT 'en'
 );
@@ -19,7 +19,7 @@ CREATE TABLE "Domain" (
     "mxEnabled" BOOLEAN NOT NULL DEFAULT true,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "reputationScore" INTEGER NOT NULL DEFAULT 100,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CreateTable
@@ -37,9 +37,9 @@ CREATE TABLE "Inbox" (
     "burnOnRead" BOOLEAN NOT NULL DEFAULT false,
     "isPermanent" BOOLEAN NOT NULL DEFAULT false,
     "planDuration" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "expiresAt" DATETIME NOT NULL,
-    "lastActivityAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "messageCount" INTEGER NOT NULL DEFAULT 0,
     "maxMessages" INTEGER NOT NULL DEFAULT 100,
     CONSTRAINT "Inbox_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
@@ -53,8 +53,8 @@ CREATE TABLE "CustomAlias" (
     "localPart" TEXT NOT NULL,
     "domainId" TEXT NOT NULL,
     "lastUsedBySessionHash" TEXT,
-    "cooldownUntil" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "cooldownUntil" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CreateTable
@@ -70,7 +70,7 @@ CREATE TABLE "Message" (
     "previewText" TEXT NOT NULL,
     "bodyText" TEXT NOT NULL,
     "bodyHtml" TEXT NOT NULL,
-    "receivedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "sizeBytes" INTEGER NOT NULL DEFAULT 0,
     "hasHtml" BOOLEAN NOT NULL DEFAULT false,
     "hasText" BOOLEAN NOT NULL DEFAULT false,
@@ -98,7 +98,7 @@ CREATE TABLE "Attachment" (
     "storageKey" TEXT NOT NULL,
     "sha256" TEXT NOT NULL,
     "scanStatus" TEXT NOT NULL DEFAULT 'pending',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Attachment_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "Message" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -108,7 +108,7 @@ CREATE TABLE "AbuseReport" (
     "messageId" TEXT NOT NULL,
     "reason" TEXT NOT NULL,
     "category" TEXT NOT NULL DEFAULT 'spam',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AbuseReport_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "Message" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -116,7 +116,7 @@ CREATE TABLE "AbuseReport" (
 CREATE TABLE "RateLimitBucket" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "key" TEXT NOT NULL,
-    "windowStart" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "windowStart" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "count" INTEGER NOT NULL DEFAULT 0,
     "limit" INTEGER NOT NULL
 );
@@ -127,8 +127,8 @@ CREATE TABLE "NotificationSubscription" (
     "sessionId" TEXT NOT NULL,
     "endpoint" TEXT NOT NULL,
     "keys" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "expiresAt" DATETIME NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "NotificationSubscription_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -142,7 +142,7 @@ CREATE TABLE "AuditLog" (
     "targetId" TEXT,
     "metadata" TEXT NOT NULL DEFAULT '{}',
     "ipHash" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AuditLog_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "AuditLog_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
@@ -162,9 +162,9 @@ CREATE TABLE "Account" (
     "storageQuotaBytes" BIGINT NOT NULL DEFAULT 5368709120,
     "storageUsedBytes" BIGINT NOT NULL DEFAULT 0,
     "status" TEXT NOT NULL DEFAULT 'active',
-    "deletionScheduledAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "deletionScheduledAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL
 );
 
 -- CreateTable
@@ -176,7 +176,7 @@ CREATE TABLE "Label" (
     "retentionDays" INTEGER,
     "isSystemLabel" BOOLEAN NOT NULL DEFAULT false,
     "parentLabelId" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Label_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "Label_parentLabelId_fkey" FOREIGN KEY ("parentLabelId") REFERENCES "Label" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
@@ -189,7 +189,7 @@ CREATE TABLE "Filter" (
     "conditions" TEXT NOT NULL DEFAULT '[]',
     "actions" TEXT NOT NULL DEFAULT '[]',
     "stopProcessing" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Filter_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -201,7 +201,7 @@ CREATE TABLE "Contact" (
     "email" TEXT NOT NULL,
     "groupName" TEXT,
     "source" TEXT NOT NULL DEFAULT 'manual',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Contact_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -215,7 +215,7 @@ CREATE TABLE "Draft" (
     "subject" TEXT NOT NULL DEFAULT '',
     "body" TEXT NOT NULL DEFAULT '',
     "attachments" TEXT NOT NULL DEFAULT '[]',
-    "lastSavedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSavedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Draft_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -227,20 +227,20 @@ CREATE TABLE "SentMessage" (
     "cc" TEXT NOT NULL DEFAULT '',
     "subject" TEXT NOT NULL,
     "body" TEXT NOT NULL DEFAULT '',
-    "sentAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "relayProvider" TEXT,
     "relayMessageId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'sent',
-    "deliveredAt" DATETIME,
-    "bouncedAt" DATETIME,
+    "deliveredAt" TIMESTAMP(3),
+    "bouncedAt" TIMESTAMP(3),
     "bounceReason" TEXT,
     "trackingPixelId" TEXT,
-    "firstOpenedAt" DATETIME,
+    "firstOpenedAt" TIMESTAMP(3),
     "openCount" INTEGER NOT NULL DEFAULT 0,
     "mdnRequested" BOOLEAN NOT NULL DEFAULT false,
-    "mdnReceivedAt" DATETIME,
+    "mdnReceivedAt" TIMESTAMP(3),
     "isConfidential" BOOLEAN NOT NULL DEFAULT false,
-    "confidentialExpiresAt" DATETIME,
+    "confidentialExpiresAt" TIMESTAMP(3),
     CONSTRAINT "SentMessage_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -251,7 +251,7 @@ CREATE TABLE "AccountAlias" (
     "aliasAddress" TEXT NOT NULL,
     "signature" TEXT,
     "active" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "AccountAlias_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -261,8 +261,8 @@ CREATE TABLE "LoginSession" (
     "accountId" TEXT NOT NULL,
     "deviceInfo" TEXT NOT NULL DEFAULT '',
     "ipHash" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "lastSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "revoked" BOOLEAN NOT NULL DEFAULT false,
     CONSTRAINT "LoginSession_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -281,8 +281,8 @@ CREATE TABLE "VacationResponder" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "accountId" TEXT NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
-    "startDate" DATETIME,
-    "endDate" DATETIME,
+    "startDate" TIMESTAMP(3),
+    "endDate" TIMESTAMP(3),
     "subject" TEXT NOT NULL DEFAULT '',
     "body" TEXT NOT NULL DEFAULT '',
     "contactsOnly" BOOLEAN NOT NULL DEFAULT false,
@@ -296,8 +296,8 @@ CREATE TABLE "AppPassword" (
     "accountId" TEXT NOT NULL,
     "label" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "lastUsedAt" DATETIME,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastUsedAt" TIMESTAMP(3),
     "revoked" BOOLEAN NOT NULL DEFAULT false,
     CONSTRAINT "AppPassword_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
