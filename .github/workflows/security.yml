@@ -21,7 +21,7 @@ jobs:
 
       - name: Run dependency audit
         run: |
-          AUDIT_OUTPUT=$(bun audit 2>&1 || true)
+          AUDIT_OUTPUT=$(npm audit 2>&1 || true)
           # Strictly fail ONLY if critical vulnerabilities are found, to enforce high security standards without blocking on smaller issues unnecessarily.
           if echo "$AUDIT_OUTPUT" | grep -q "critical"; then
             echo "::error::Critical vulnerabilities found"
