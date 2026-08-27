@@ -9,6 +9,7 @@
   "dependencies": {
     "@prisma/client": "6.11.1",
     "dompurify": "^3.2.4",
+    "express": "^5.2.1",
     "jsdom": "^26.1.0",
     "mailauth": "^4.8.0",
     "mailparser": "^3.7.4",
@@ -16,5 +17,8 @@
     "smtp-server": "^3.13.6",
     "socket.io": "^4.7.5",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
   }
 }

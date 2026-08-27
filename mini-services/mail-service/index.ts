@@ -818,6 +818,56 @@ setInterval(async () => {
   }
 }, 30_000)
 
+
+import express from 'express';
+const app = express();
+app.use(express.json());
+
+// ---------- Internal HTTP API (for Resend webhook forwarding) ----------
+app.post('/api/internal/ingest-webhook', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const internalSecret = process.env.INTERNAL_API_SECRET;
+  
+  if (!internalSecret || authHeader !== `Bearer ${internalSecret}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const body = req.body;
+  
+  // Basic validation
+  if (body?.type !== 'email.received' || !body?.to || !body?.from) {
+     return res.status(400).json({ error: 'Invalid payload' });
+  }
+  
+  try {
+     const to = Array.isArray(body.to) ? body.to[0] : body.to;
+     const from = body.from;
+     
+     // Construct simple raw mail for ingestMessage
+     const rawMailStr = `From: ${from}\r\nTo: ${to}\r\nSubject: ${body.subject || 'No Subject'}\r\n\r\n${body.text || body.html || ''}`;
+     const rawMail = Buffer.from(rawMailStr);
+
+     const result = await ingestMessage({ 
+       to: to.toLowerCase(), 
+       from: from.toLowerCase(), 
+       rawMail, 
+       senderIp: '0.0.0.0', // Not available from webhook
+       senderHost: 'resend-webhook' 
+     });
+     
+     if (!result.ok) {
+        return res.status(400).json({ error: result.reason || 'Ingest failed' });
+     }
+     
+     return res.json({ ok: true });
+  } catch (e) {
+     console.error('[internal-api] ingest error:', e);
+     return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+httpServer.on('request', app);
+
 // ---------- HTTP server for Socket.IO ----------
 const PORT = process.env.PORT || 3003
 httpServer.listen(PORT, () => {

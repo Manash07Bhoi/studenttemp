@@ -72,7 +72,7 @@ export function proxy(req: NextRequest) {
   // The gate page itself is allowed (so the user can enter the password).
   // Static assets and _next/* are also allowed (so the gate page renders correctly).
   if (process.env.SITE_ACCESS_PASSWORD_HASH) {
-    const isGateAPI = pathname.startsWith('/api/site-access')
+    const isGateAPI = pathname.startsWith('/api/site-access') || pathname.startsWith('/api/webhooks/')
     const isStatic = pathname.startsWith('/_next/') || pathname.startsWith('/sw.js') || pathname.startsWith('/manifest.json') || pathname === '/favicon.ico' || pathname === '/logo.svg' || pathname === '/robots.txt'
     if (!isGateAPI && !isStatic) {
       const accessCookie = req.cookies.get('st_access')?.value

@@ -81,6 +81,41 @@ export async function POST(req: NextRequest) {
   let relayMessageId: string | null = null
   let eventType: string = ''
 
+  // Support for email.received
+  if (body?.type === 'email.received') {
+    eventType = 'email.received'
+    // Forward the payload to the internal mail service endpoint
+    try {
+      const internalMailHost = process.env.INTERNAL_MAIL_SERVICE_URL || 'http://studenttemp-mail:3003'
+      const internalSecret = process.env.INTERNAL_API_SECRET
+      if (!internalSecret) {
+        console.error('[webhook] INTERNAL_API_SECRET not set, cannot forward to mail service')
+        return NextResponse.json({ error: 'Internal configuration error' }, { status: 500 })
+      }
+      
+      const forwardRes = await fetch(`${internalMailHost}/api/internal/ingest-webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${internalSecret}`
+        },
+        body: rawBody
+      })
+
+      if (!forwardRes.ok) {
+        const errorText = await forwardRes.text()
+        console.error(`[webhook] Failed to forward email.received: ${forwardRes.status} ${errorText}`)
+        return NextResponse.json({ error: 'Failed to process inbound message' }, { status: forwardRes.status })
+      }
+      
+      console.info(`[webhook] Successfully forwarded email.received to mail service`)
+      return NextResponse.json({ ok: true, forwarded: true })
+    } catch (e) {
+      console.error('[webhook] Exception forwarding email.received:', e)
+      return NextResponse.json({ error: 'Internal forwarding error' }, { status: 500 })
+    }
+  }
+
   if (body?.email?.id) {
     relayMessageId = body.email.id
     eventType = body.type || ''
