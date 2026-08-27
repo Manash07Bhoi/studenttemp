@@ -8,22 +8,22 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model Session {
-  id              String   @id @default(cuid())
+  id            String                     @id @default(cuid())
   // Hashed recovery token (SHA-256). Raw token shown to user once, never stored.
-  tokenHash       String   @unique
-  createdAt       DateTime @default(now())
-  lastSeenAt      DateTime @default(now())
-  expiresAt       DateTime // rolling TTL
-  maxInboxes      Int      @default(5)
-  locale          String   @default("en")
-  inboxes         Inbox[]
-  subscriptions   NotificationSubscription[]
-  auditLogs       AuditLog[]
+  tokenHash     String                     @unique
+  createdAt     DateTime                   @default(now())
+  lastSeenAt    DateTime                   @default(now())
+  expiresAt     DateTime // rolling TTL
+  maxInboxes    Int                        @default(5)
+  locale        String                     @default("en")
+  inboxes       Inbox[]
+  subscriptions NotificationSubscription[]
+  auditLogs     AuditLog[]
 
   @@index([expiresAt])
 }
@@ -42,28 +42,28 @@ model Domain {
 }
 
 model Inbox {
-  id              String   @id @default(cuid())
-  publicId        String   @unique @default(cuid()) // opaque external identifier
-  sessionId       String?
-  session         Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  accountId       String?  // Account Mode: linked to a permanent account
-  account         Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  email           String   @unique // denormalized localPart@domain for fast SMTP recipient lookup
-  localPart       String
-  domainId        String
-  domain          Domain  @relation(fields: [domainId], references: [id])
-  isCustomAlias   Boolean  @default(false)
-  status          String   @default("active") // active | expiring | expired | deleted | permanent
-  category        String   @default("general")
-  burnOnRead      Boolean  @default(false)
-  isPermanent     Boolean  @default(false) // Account Mode: permanent mailbox
-  planDuration    String?  // Account Mode: "1h" | "1d" | "7d" | "30d" | "90d" | "180d" | "365d" | "permanent"
-  createdAt       DateTime @default(now())
-  expiresAt       DateTime // for permanent: far future (year 2099)
-  lastActivityAt  DateTime @default(now())
-  messageCount    Int      @default(0)
-  maxMessages     Int      @default(100)
-  messages        Message[]
+  id             String    @id @default(cuid())
+  publicId       String    @unique @default(cuid()) // opaque external identifier
+  sessionId      String?
+  session        Session?  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  accountId      String? // Account Mode: linked to a permanent account
+  account        Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  email          String    @unique // denormalized localPart@domain for fast SMTP recipient lookup
+  localPart      String
+  domainId       String
+  domain         Domain    @relation(fields: [domainId], references: [id])
+  isCustomAlias  Boolean   @default(false)
+  status         String    @default("active") // active | expiring | expired | deleted | permanent
+  category       String    @default("general")
+  burnOnRead     Boolean   @default(false)
+  isPermanent    Boolean   @default(false) // Account Mode: permanent mailbox
+  planDuration   String? // Account Mode: "1h" | "1d" | "7d" | "30d" | "90d" | "180d" | "365d" | "permanent"
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime // for permanent: far future (year 2099)
+  lastActivityAt DateTime  @default(now())
+  messageCount   Int       @default(0)
+  maxMessages    Int       @default(100)
+  messages       Message[]
 
   @@unique([localPart, domainId, status])
   @@index([sessionId])
@@ -74,76 +74,76 @@ model Inbox {
 
 model CustomAlias {
   // Reservation/cooldown ledger — separate from inbox lifecycle for anti-squatting
-  id                    String   @id @default(cuid())
+  id                    String    @id @default(cuid())
   localPart             String
   domainId              String
-  lastUsedBySessionHash String?  // hashed for cooldown enforcement only
+  lastUsedBySessionHash String? // hashed for cooldown enforcement only
   cooldownUntil         DateTime?
-  createdAt             DateTime @default(now())
+  createdAt             DateTime  @default(now())
 
   @@unique([localPart, domainId])
   @@index([cooldownUntil])
 }
 
 model Message {
-  id              String   @id @default(cuid())
-  publicId        String   @unique @default(cuid())
-  inboxId         String
-  inbox           Inbox    @relation(fields: [inboxId], references: [id], onDelete: Cascade)
-  smtpMessageId   String?  // from Message-ID header
-  senderAddress   String
-  senderDisplayName String?
-  senderIp        String?  // real connecting IP from SMTP session
-  subject         String
-  previewText     String
-  bodyText        String
-  bodyHtml        String   // sanitized HTML stored inline (SQLite; in prod would be R2 key)
-  receivedAt      DateTime @default(now())
-  sizeBytes       Int      @default(0)
-  hasHtml         Boolean  @default(false)
-  hasText         Boolean  @default(false)
-  hasAttachment   Boolean  @default(false)
+  id                       String        @id @default(cuid())
+  publicId                 String        @unique @default(cuid())
+  inboxId                  String
+  inbox                    Inbox         @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  smtpMessageId            String? // from Message-ID header
+  senderAddress            String
+  senderDisplayName        String?
+  senderIp                 String? // real connecting IP from SMTP session
+  subject                  String
+  previewText              String
+  bodyText                 String
+  bodyHtml                 String // sanitized HTML stored inline (SQLite; in prod would be R2 key)
+  receivedAt               DateTime      @default(now())
+  sizeBytes                Int           @default(0)
+  hasHtml                  Boolean       @default(false)
+  hasText                  Boolean       @default(false)
+  hasAttachment            Boolean       @default(false)
   // Real authentication results computed by mailauth from actual SMTP connection + DNS
-  authSpf         String   @default("none") // pass | fail | neutral | none | error | softfail
-  authDkim        String   @default("none")
-  authDmarc       String   @default("none")
-  authDetails     String   @default("{}") // JSON: full verification results
-  isRead          Boolean  @default(false)
-  isStarred       Boolean  @default(false)
-  isReported      Boolean  @default(false)
-  scanStatus      String   @default("clean") // pending | clean | quarantined | failed
-  attachments     Attachment[]
-  abuseReports     AbuseReport[]
-  externalResourcesBlocked Int @default(0)
+  authSpf                  String        @default("none") // pass | fail | neutral | none | error | softfail
+  authDkim                 String        @default("none")
+  authDmarc                String        @default("none")
+  authDetails              String        @default("{}") // JSON: full verification results
+  isRead                   Boolean       @default(false)
+  isStarred                Boolean       @default(false)
+  isReported               Boolean       @default(false)
+  scanStatus               String        @default("clean") // pending | clean | quarantined | failed
+  attachments              Attachment[]
+  abuseReports             AbuseReport[]
+  externalResourcesBlocked Int           @default(0)
 
   @@index([inboxId])
   @@index([receivedAt])
 }
 
 model Attachment {
-  id           String   @id @default(cuid())
-  messageId    String
-  message      Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  filename     String   // sanitized
+  id               String   @id @default(cuid())
+  messageId        String
+  message          Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  filename         String // sanitized
   originalFilename String? // preserved separately
-  mimeType     String   // server-verified via magic bytes
-  sizeBytes    Int
-  storageKey   String   // local file path in dev; R2 key in prod
-  sha256       String
-  scanStatus   String   @default("pending") // pending | clean | quarantined | failed
-  createdAt    DateTime @default(now())
+  mimeType         String // server-verified via magic bytes
+  sizeBytes        Int
+  storageKey       String // local file path in dev; R2 key in prod
+  sha256           String
+  scanStatus       String   @default("pending") // pending | clean | quarantined | failed
+  createdAt        DateTime @default(now())
 
   @@index([messageId])
   @@index([sha256])
 }
 
 model AbuseReport {
-  id          String   @id @default(cuid())
-  messageId   String
-  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  reason      String
-  category    String   @default("spam") // spam | phishing | abuse | other
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reason    String
+  category  String   @default("spam") // spam | phishing | abuse | other
+  createdAt DateTime @default(now())
 }
 
 model RateLimitBucket {
@@ -156,29 +156,29 @@ model RateLimitBucket {
 }
 
 model NotificationSubscription {
-  id          String   @id @default(cuid())
-  sessionId   String
-  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  endpoint    String
-  keys        String   // JSON: p256dh, auth
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  endpoint  String
+  keys      String // JSON: p256dh, auth
+  createdAt DateTime @default(now())
+  expiresAt DateTime
 
   @@index([sessionId])
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  sessionId   String?
-  session     Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  accountId   String?
-  account     Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  action      String
-  targetType  String?
-  targetId    String?
-  metadata    String   @default("{}") // JSON
-  ipHash      String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  sessionId  String?
+  session    Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  accountId  String?
+  account    Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   String   @default("{}") // JSON
+  ipHash     String?
+  createdAt  DateTime @default(now())
 
   @@index([sessionId])
   @@index([accountId])
@@ -190,117 +190,117 @@ model AuditLog {
 // ============================================================
 
 model Account {
-  id                  String   @id @default(cuid())
-  email               String   @unique // permanent address: username@domain
+  id                  String    @id @default(cuid())
+  email               String    @unique // permanent address: username@domain
   phone               String?
-  passwordHash        String   // bcrypt
+  passwordHash        String // bcrypt
   displayName         String?
-  avatarKey           String?  // storage key for uploaded avatar
+  avatarKey           String? // storage key for uploaded avatar
   recoveryEmail       String?
   recoveryPhone       String?
-  totpSecretEncrypted String?  // AES-encrypted TOTP secret
-  totpEnabled         Boolean  @default(false)
+  totpSecretEncrypted String? // AES-encrypted TOTP secret
+  totpEnabled         Boolean   @default(false)
   storageQuotaBytes   BigInt    @default(5368709120) // 5GB default
-  storageUsedBytes   BigInt    @default(0)
-  status              String   @default("active") // active | suspended | grace_deletion | deleted
+  storageUsedBytes    BigInt    @default(0)
+  status              String    @default("active") // active | suspended | grace_deletion | deleted
   deletionScheduledAt DateTime? // when grace period expires
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  labels              Label[]
-  filters             Filter[]
-  contacts            Contact[]
-  drafts              Draft[]
-  sentMessages        SentMessage[]
-  aliases             AccountAlias[]
-  loginSessions       LoginSession[]
-  backupCodes         BackupCode[]
-  vacationResponder   VacationResponder?
-  appPasswords        AppPassword[]
-  inboxes             Inbox[] // account-linked inboxes (permanent or time-limited)
-  auditLogs           AuditLog[]
+  labels            Label[]
+  filters           Filter[]
+  contacts          Contact[]
+  drafts            Draft[]
+  sentMessages      SentMessage[]
+  aliases           AccountAlias[]
+  loginSessions     LoginSession[]
+  backupCodes       BackupCode[]
+  vacationResponder VacationResponder?
+  appPasswords      AppPassword[]
+  inboxes           Inbox[] // account-linked inboxes (permanent or time-limited)
+  auditLogs         AuditLog[]
 }
 
 model Label {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  name            String
-  color           String    @default("#10b981")
-  retentionDays   Int?      // null = forever; otherwise auto-delete after N days
-  isSystemLabel   Boolean   @default(false) // Inbox, Starred, Sent, Drafts, Spam, Trash, All Mail
-  parentLabelId   String?   // G6: nested labels
-  parentLabel     Label?    @relation("LabelHierarchy", fields: [parentLabelId], references: [id], onDelete: SetNull)
-  childLabels     Label[]   @relation("LabelHierarchy")
-  createdAt       DateTime @default(now())
+  id            String   @id @default(cuid())
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name          String
+  color         String   @default("#10b981")
+  retentionDays Int? // null = forever; otherwise auto-delete after N days
+  isSystemLabel Boolean  @default(false) // Inbox, Starred, Sent, Drafts, Spam, Trash, All Mail
+  parentLabelId String? // G6: nested labels
+  parentLabel   Label?   @relation("LabelHierarchy", fields: [parentLabelId], references: [id], onDelete: SetNull)
+  childLabels   Label[]  @relation("LabelHierarchy")
+  createdAt     DateTime @default(now())
 
   @@unique([accountId, name])
   @@index([accountId])
 }
 
 model Filter {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  priorityOrder   Int       @default(0) // lower = higher priority
-  conditions      String    @default("[]") // JSON: [{field, operator, value}]
-  actions         String    @default("[]") // JSON: [{type, value}]
-  stopProcessing  Boolean   @default(false) // L3: halt after this filter
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  accountId      String
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  priorityOrder  Int      @default(0) // lower = higher priority
+  conditions     String   @default("[]") // JSON: [{field, operator, value}]
+  actions        String   @default("[]") // JSON: [{type, value}]
+  stopProcessing Boolean  @default(false) // L3: halt after this filter
+  createdAt      DateTime @default(now())
 
   @@index([accountId])
 }
 
 model Contact {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  name            String
-  email           String
-  groupName       String?
-  source          String    @default("manual") // manual | auto_suggested
-  createdAt       DateTime @default(now())
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  email     String
+  groupName String?
+  source    String   @default("manual") // manual | auto_suggested
+  createdAt DateTime @default(now())
 
   @@unique([accountId, email])
   @@index([accountId])
 }
 
 model Draft {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  to              String    @default("")
-  cc              String    @default("")
-  bcc             String    @default("")
-  subject         String    @default("")
-  body            String    @default("")
-  attachments     String    @default("[]") // JSON
-  lastSavedAt     DateTime @default(now())
+  id          String   @id @default(cuid())
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  to          String   @default("")
+  cc          String   @default("")
+  bcc         String   @default("")
+  subject     String   @default("")
+  body        String   @default("")
+  attachments String   @default("[]") // JSON
+  lastSavedAt DateTime @default(now())
 
   @@index([accountId])
 }
 
 model SentMessage {
-  id                  String   @id @default(cuid())
-  accountId           String
-  account             Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  to                  String
-  cc                  String    @default("")
-  subject             String
-  body                String    @default("")
-  sentAt              DateTime @default(now())
-  relayProvider       String?   // resend | brevo
-  relayMessageId      String?
-  status              String   @default("sent") // queued | sent | delivered | bounced | failed
-  deliveredAt         DateTime?
-  bouncedAt           DateTime?
-  bounceReason        String?
-  trackingPixelId     String?   // G4/T2: open tracking
-  firstOpenedAt       DateTime?
-  openCount           Int      @default(0)
-  mdnRequested        Boolean  @default(false) // T2: read receipt request
-  mdnReceivedAt       DateTime?
-  isConfidential      Boolean  @default(false) // G4: confidential mode
+  id                    String    @id @default(cuid())
+  accountId             String
+  account               Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  to                    String
+  cc                    String    @default("")
+  subject               String
+  body                  String    @default("")
+  sentAt                DateTime  @default(now())
+  relayProvider         String? // resend | brevo
+  relayMessageId        String?
+  status                String    @default("sent") // queued | sent | delivered | bounced | failed
+  deliveredAt           DateTime?
+  bouncedAt             DateTime?
+  bounceReason          String?
+  trackingPixelId       String? // G4/T2: open tracking
+  firstOpenedAt         DateTime?
+  openCount             Int       @default(0)
+  mdnRequested          Boolean   @default(false) // T2: read receipt request
+  mdnReceivedAt         DateTime?
+  isConfidential        Boolean   @default(false) // G4: confidential mode
   confidentialExpiresAt DateTime?
 
   @@index([accountId])
@@ -308,61 +308,61 @@ model SentMessage {
 }
 
 model AccountAlias {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  aliasAddress    String    @unique
-  signature        String?   // G9: per-alias signature
-  active           Boolean  @default(true)
-  createdAt       DateTime @default(now())
+  id           String   @id @default(cuid())
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  aliasAddress String   @unique
+  signature    String? // G9: per-alias signature
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 }
 
 model LoginSession {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  deviceInfo      String    @default("")
-  ipHash          String?
-  createdAt       DateTime @default(now())
-  lastSeenAt      DateTime @default(now())
-  revoked          Boolean  @default(false)
+  id         String   @id @default(cuid())
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deviceInfo String   @default("")
+  ipHash     String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  revoked    Boolean  @default(false)
 
   @@index([accountId])
 }
 
 model BackupCode {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  codeHash        String   // hashed backup code
-  used            Boolean  @default(false)
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  codeHash  String // hashed backup code
+  used      Boolean @default(false)
 
   @@index([accountId])
 }
 
 model VacationResponder {
-  id              String   @id @default(cuid())
-  accountId       String   @unique
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  enabled         Boolean  @default(false)
-  startDate       DateTime?
-  endDate         DateTime?
-  subject         String    @default("")
-  body           String    @default("")
-  contactsOnly   Boolean  @default(false)
+  id           String    @id @default(cuid())
+  accountId    String    @unique
+  account      Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  enabled      Boolean   @default(false)
+  startDate    DateTime?
+  endDate      DateTime?
+  subject      String    @default("")
+  body         String    @default("")
+  contactsOnly Boolean   @default(false)
   // Track who we've already replied to (prevent loops)
-  repliedTo      String    @default("[]") // JSON array of sender addresses
+  repliedTo    String    @default("[]") // JSON array of sender addresses
 }
 
 model AppPassword {
-  id              String   @id @default(cuid())
-  accountId       String
-  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  label           String    // user-given name, e.g. "Thunderbird"
-  passwordHash    String
-  createdAt       DateTime @default(now())
-  lastUsedAt      DateTime?
-  revoked          Boolean  @default(false)
+  id           String    @id @default(cuid())
+  accountId    String
+  account      Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  label        String // user-given name, e.g. "Thunderbird"
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+  revoked      Boolean   @default(false)
 
   @@index([accountId])
 }

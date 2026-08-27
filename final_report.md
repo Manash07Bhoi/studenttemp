@@ -1,58 +1,101 @@
-# What Changed
+# Render Deployment
 
-- **Database Migration Strategy**: Converted the Prisma schema natively to `postgresql` instead of `sqlite` to resolve the `P1012` validation error during Render's build. Dropped SQLite migrations and generated a baseline PostgreSQL migration `20260826150816_init`.
-- **Render Deployment Configuration**: Integrated `preDeployCommand: bun run prisma migrate deploy && bun run prisma/seed.ts` directly into `render.yaml` to ensure non-destructive production migrations rather than relying on `db:push` inside the `package.json` build step.
-- **CI/CD Fixes**: Restored strict failures for `axe-core` accessibility and `dependency-audit` workflows, removing artificial bypasses now that dependencies match. Removed `db:push` entirely from the CI pipeline, shifting database responsibility strictly to the Render `preDeployCommand`.
-- **Mail Service Port**: Verified that `mini-services/mail-service/index.ts` gracefully falls back to `process.env.PORT` enabling standard web service routing within Render.
-- **Security & Sentry**: Double-checked that no generated secrets are committed to tracking. `sentry.client.config.ts` (and server/edge equivalents) safely export the public DSN string.
+- **Web Service (`studenttemp-web`)**: Deployed successfully, currently active at `studenttemp-web.onrender.com`. However, API `/api/session` returns 500.
+- **Mail Service (`studenttemp-mail`)**: Deployed successfully.
+- **Database (`studenttemp-db`)**: Provisioned successfully and available.
 
-# CI/CD Verification
+# Deployment Failures Fixed
 
-- Dependency Audit: Correctly fails on critical alerts.
-- Accessibility Check: `browser-driver-manager` appropriately configures the ChromeDriver version allowing `@axe-core/cli` to execute valid tests.
-- Lint / Typecheck: Executes correctly following the inclusion of `mail-service` in Bun's workspace.
+- **Prisma Schema Error (P1012):** The `prisma/schema.prisma` contained a `sqlite` provider, causing initialization errors on Render.
+  - **Fix:** Switched provider to `postgresql`, created `20260826150816_init` migration, but unable to push to `main` due to GitHub auth restrictions in this sandbox.
 
-# Security Verification
+# PostgreSQL / Prisma
 
-- No instances of `VAPID_PRIVATE_KEY`, `TOTP_ENCRYPTION_KEY`, `DATABASE_URL` or `SITE_ACCESS_PASSWORD_HASH` exist in any committed `.env` files or tracked history.
-- Sentry integration uses public DSN routing securely.
+- **Provider:** PostgreSQL (after local fix).
+- **Migration:** `20260826150816_init` created.
+- **Pre-deploy Migration:** `bun run prisma migrate deploy && bun run prisma/seed.ts` is configured in `render.yaml`.
+- **Database Verification:** DB is online, but application throws `P1012` until the PR is successfully merged and auto-deployed.
 
-# Database/Migration Verification
+# Web Application
 
-- Migration generated targeting PostgreSQL (`provider = "postgresql"`).
-- Destructive `db:push` explicitly removed from standard build steps.
-- Seeding utilizes `upsert` ensuring idempotency.
+- **Production URL:** `https://studenttemp-web.onrender.com`
+- **HTTP/HTTPS:** Verified (Render terminates HTTPS securely).
+- **Authentication:** Gated behind `SITE_ACCESS_PASSWORD_HASH` -> `/api/site-access/verify`. Returns 401 SITE_ACCESS_DENIED without proper cookie.
+- **API Verification:** `/api/session` crashes due to Prisma schema mismatch.
 
-# Sentry Verification
+# Mail Service
 
-- `@sentry/nextjs` is successfully integrated. Next.js standalone container will instantiate the Sentry client upon startup.
+- **Deployment Status:** Deployed
+- **Architecture Evaluation:** `studenttemp-mail` tries to bind port 2525 (TCP). Render Web Services **do not support** exposing raw TCP ports, making Direct SMTP (Architecture A) fundamentally impossible without an external VPS.
+- **Resend Inbound (Architecture B):** Only viable option. Webhook `/api/webhooks/relay` exists.
+- **Events:** Only `email.delivered`, `email.bounced`, `email.complained` are parsed. `email.received` (inbound mail) is missing from the webhook logic entirely.
 
-# Mail-Service Verification
+# Sentry
 
-- Assured the Worker correctly binds to Render's dynamically provided `PORT` variable during initialization.
+- **Status:** Verified. Sentry Next.js SDK is configured correctly. `sentry.client.config.ts` exposes public DSN appropriately.
 
-# Render Status
+# CI/CD
 
-- **PostgreSQL (`studenttemp-db`)**: Provisioned successfully and accessible via connection string.
-- **Web Service (`studenttemp-web`)**: Blocked due to `P1012` Prisma provider mismatch against the current `main` branch. This PR's changes to the Prisma schema will resolve the crash.
-- **Mail Service (`studenttemp-mail`)**: Not formally active yet due to pending successful merge.
+- **CI (Build/Typecheck):** PASS
+- **Performance:** PASS
+- **E2E:** PASS
+- **PR Validation:** FAIL. Root cause: The merge commit title violated the conventional commits regex.
+- **Accessibility:** FAIL. Root cause: Compatibility issue between `axe-core` and the headless Chrome version injected by `browser-driver-manager` (`Cannot read properties of undefined (reading 'utils')`).
 
-# Documentation Status
+# Security
 
-- Reverted speculative/premature `PRODUCTION READY` status markers.
-- `AGENTS.md`, `README.md`, and `FREE-DEPLOY-STATUS.md` contain accurate and cohesive statements describing the current state.
+- **Tracked Secrets:** PASS (Clean).
+- **Git History:** PASS.
+- **Webhook Signatures:** PASS (Svix signature validation on Resend).
+- **Security Headers & CSP:** PASS.
 
-# Remaining Blockers
+# Final Production Gate
 
-### Human/External Action Required
+- [x] PostgreSQL deployed
+- [FAIL] migrations successful (Blocked by GitHub push limits)
+- [FAIL] seed successful
+- [x] web deployment healthy (Returns gated pages)
+- [x] mail service healthy (Boots, but useless for external SMTP on Render)
+- [FAIL] `/api/session` no longer crashes (Awaiting DB fix deploy)
+- [FAIL] authentication verified
+- [FAIL] critical APIs verified
+- [x] Render environment variables verified
+- [x] HTTPS verified
+- [x] security headers verified
+- [x] Sentry verified
+- [x] GitHub CI passing
+- [FAIL] PR validation passing
+- [FAIL] accessibility passing
+- [x] E2E passing
+- [x] performance passing
+- [x] security checks passing
+- [x] Resend configuration verified
+- [x] webhook endpoint verified
+- [x] webhook signature verification verified
+- [FAIL] required Resend events verified (Missing `email.received`)
+- [FAIL] inbound-mail path verified
+- [NOT APPLICABLE] MX verified where applicable
+- [NOT VERIFIED] SPF verified
+- [NOT VERIFIED] DKIM verified
+- [NOT VERIFIED] DMARC verified
+- [NOT APPLICABLE] Caddy verified OR explicitly determined unnecessary
+- [x] no exposed secrets
+- [FAIL] production runtime stable
 
-1. **Merge this PR to initiate Render auto-deploy**: The Render Web Services will automatically rebuild upon merging these changes into the `main` branch, triggering the `preDeployCommand` for migrations.
+# FINAL STATUS
 
-### Subsequent Tasks
+`NOT PRODUCTION READY`
 
-2. Wait for the Render `studenttemp-web` and `studenttemp-mail` builds to complete.
-3. Once live, independently verify URL responses (`/api/auth/me`), HTTPS enforcement, Mail authentication layers, and real-world Sentry error capturing.
+### Code Problems
+- PR Validation and Accessibility Check actions are failing and need pipeline fixes.
+- Missing `email.received` event handler in `/api/webhooks/relay`. Inbound mail functionality is fundamentally unimplemented for the Resend webhook architecture.
 
-# Production Status
+### Infrastructure Problems
+- Mail Service (port 2525) cannot be exposed on Render. Architecture must pivot entirely to Resend Inbound Webhooks.
+- Caddy is obsolete for Render and should be removed from architecture docs.
 
-NOT PRODUCTION READY
+### Authorization Problems
+- GitHub authentication restrictions in the sandbox prevented pushing the PostgreSQL Prisma fix, blocking the Render preDeployCommand.
+
+### External Requirements
+- Requires a real domain configured with Resend DNS records (MX, SPF, DKIM, DMARC) once the webhook inbound logic is implemented.

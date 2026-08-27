@@ -28,7 +28,7 @@ jobs:
           else
             echo "::error::PR title must follow Conventional Commits format: type(scope): description"
             echo "Got: $PR_TITLE"
-            e\x\i	 1
+            exit 1
           fi
 
 

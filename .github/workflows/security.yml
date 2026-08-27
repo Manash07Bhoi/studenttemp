@@ -26,6 +26,6 @@ jobs:
           if echo "$AUDIT_OUTPUT" | grep -q "critical"; then
             echo "::error::Critical vulnerabilities found"
             echo "$AUDIT_OUTPUT"
-            e\x\i	 1
+            exit 1
           fi
           echo "::notice::Audit completed."
