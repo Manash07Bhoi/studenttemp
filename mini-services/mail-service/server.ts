@@ -78,7 +78,7 @@ const ALLOWED_SOCKET_ORIGINS = (process.env.PUBLIC_BASE_URL || '')
     'https://studentemp.space-z.ai',
   ])
 
-const httpServer = createServer()
+const httpServer = createServer(app)
 const io = new Server(httpServer, {
   path: '/',
   // Restrict to our origins. No more `origin: '*'` — this prevents
@@ -858,7 +858,7 @@ app.post('/api/internal/ingest-webhook', async (req, res) => {
   }
 });
 
-httpServer.on('request', app);
+
 
 // ---------- HTTP server for Socket.IO ----------
 const PORT = process.env.PORT || 3003
