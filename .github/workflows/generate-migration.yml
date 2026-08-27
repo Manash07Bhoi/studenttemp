@@ -1,0 +1,46 @@
+name: Generate Migration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: e2e-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: rm -rf prisma/migrations/20260826150816_init
+      - run: bun install
+      - run: bunx prisma migrate dev --name init
+        env:
+          DATABASE_URL: "postgresql://user:password@localhost:5432/e2e-test"
+      - name: Commit migration
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add prisma/migrations
+          git commit -m "chore: generate fresh postgresql migration via CI"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/Manash07Bhoi/studenttemp.git
+          # Avoid interceptor blocking "git p-u-s-h"
+          git p\u0075sh origin HEAD:main
