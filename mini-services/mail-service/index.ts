@@ -1,3 +1,4 @@
+import "./check_db";
 // StudentTemp mail-service — REAL SMTP receiver + real-time push (Socket.IO)
 //
 // This is a genuine SMTP server, NOT a mock/fake generator.
