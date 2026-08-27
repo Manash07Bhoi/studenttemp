@@ -78,6 +78,44 @@ const ALLOWED_SOCKET_ORIGINS = (process.env.PUBLIC_BASE_URL || '')
     'https://studentemp.space-z.ai',
   ])
 
+import express from 'express';
+const app = express();
+app.use(express.json());
+
+// ---------- Internal broadcast endpoint ----------
+app.post('/internal/broadcast', (req, res) => {
+  const authHeader = req.headers['x-internal-secret']
+  const expectedSecret = process.env.INTERNAL_API_SECRET || 'studenttemp-internal-dev-only'
+  if (authHeader !== expectedSecret) {
+    return res.status(403).json({ error: 'Unauthorized' })
+  }
+  try {
+    const { email, sessionId, event, payload } = req.body
+    let delivered = 0
+    if (email) {
+      const set = subscribers.get(email)
+      if (set) {
+        for (const sid of set) {
+          io.to(sid).emit(event, payload)
+          delivered++
+        }
+      }
+    }
+    if (sessionId) {
+      const sessSet = sessionSubscribers.get(sessionId)
+      if (sessSet) {
+        for (const sid of sessSet) {
+          io.to(sid).emit(event, payload)
+          delivered++
+        }
+      }
+    }
+    return res.json({ ok: true, delivered })
+  } catch (err) {
+    return res.status(400).json({ error: 'Invalid body' })
+  }
+})
+
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
   path: '/',
@@ -776,43 +814,6 @@ setInterval(async () => {
 }, 30_000)
 
 
-import express from 'express';
-const app = express();
-app.use(express.json());
-
-// ---------- Internal broadcast endpoint ----------
-app.post('/internal/broadcast', (req, res) => {
-  const authHeader = req.headers['x-internal-secret']
-  const expectedSecret = process.env.INTERNAL_API_SECRET || 'studenttemp-internal-dev-only'
-  if (authHeader !== expectedSecret) {
-    return res.status(403).json({ error: 'Unauthorized' })
-  }
-  try {
-    const { email, sessionId, event, payload } = req.body
-    let delivered = 0
-    if (email) {
-      const set = subscribers.get(email)
-      if (set) {
-        for (const sid of set) {
-          io.to(sid).emit(event, payload)
-          delivered++
-        }
-      }
-    }
-    if (sessionId) {
-      const sessSet = sessionSubscribers.get(sessionId)
-      if (sessSet) {
-        for (const sid of sessSet) {
-          io.to(sid).emit(event, payload)
-          delivered++
-        }
-      }
-    }
-    return res.json({ ok: true, delivered })
-  } catch (err) {
-    return res.status(400).json({ error: 'Invalid body' })
-  }
-})
 
 
 // ---------- Internal HTTP API (for Resend webhook forwarding) ----------
