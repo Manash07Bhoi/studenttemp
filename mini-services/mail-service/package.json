@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --hot index.ts"
+    "dev": "bun --hot index.ts",
+    "postinstall": "bunx prisma generate"
   },
   "dependencies": {
     "@prisma/client": "6.11.1",
