@@ -27,6 +27,10 @@ services:
         value: localhost
       - key: SMTP_RELAY_PORT
         value: "2525"
+      - key: NEXT_PUBLIC_MAIL_SERVICE_URL
+        value: "https://studenttemp-mail.onrender.com"
+      - key: INTERNAL_MAIL_SERVICE_URL
+        value: "https://studenttemp-mail.onrender.com"
       # The following must be set manually in Render dashboard:
       # - NEXT_PUBLIC_VAPID_PUBLIC_KEY (generate with: npx web-push generate-vapid-keys)
       # - VAPID_PRIVATE_KEY (from the same command — NEVER commit)
@@ -35,7 +39,7 @@ services:
       # - TOTP_ENCRYPTION_KEY (generate with: openssl rand -hex 32)
       # - PUBLIC_BASE_URL (set after first deploy to your Render URL)
 
-  - type: worker
+  - type: web
     name: studenttemp-mail
     runtime: node
     plan: free
