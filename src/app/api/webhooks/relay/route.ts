@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Internal configuration error' }, { status: 500 })
       }
 
-      
+
       const forwardRes = await fetch(`${internalMailHost}/api/internal/ingest-webhook`, {
         method: 'POST',
         headers: {
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Failed to process inbound message' }, { status: forwardRes.status })
       }
 
-      
+
       console.info(`[webhook] Successfully forwarded email.received to mail service`)
       return NextResponse.json({ ok: true, forwarded: true })
     } catch (e) {
