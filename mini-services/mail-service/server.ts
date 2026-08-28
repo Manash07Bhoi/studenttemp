@@ -821,14 +821,14 @@ app.post('/api/internal/ingest-webhook', async (req, res) => {
   const authHeader = req.headers.authorization;
   const internalSecret = process.env.INTERNAL_API_SECRET;
 
-  
+
   if (!internalSecret || authHeader !== `Bearer ${internalSecret}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const body = req.body;
 
-  
+
   // Basic validation
   if (body?.type !== 'email.received' || !body?.to || !body?.from) {
      return res.status(400).json({ error: 'Invalid payload' });
@@ -837,7 +837,7 @@ app.post('/api/internal/ingest-webhook', async (req, res) => {
   try {
      const to = Array.isArray(body.to) ? body.to[0] : body.to;
      const from = body.from;
-     
+
      // Construct simple raw mail for ingestMessage
      const rawMailStr = `From: ${from}\r\nTo: ${to}\r\nSubject: ${body.subject || 'No Subject'}\r\n\r\n${body.text || body.html || ''}`;
      const rawMail = Buffer.from(rawMailStr);
