@@ -92,6 +92,7 @@ export async function POST(req: NextRequest) {
         console.error('[webhook] INTERNAL_API_SECRET not set, cannot forward to mail service')
         return NextResponse.json({ error: 'Internal configuration error' }, { status: 500 })
       }
+
       
       const forwardRes = await fetch(`${internalMailHost}/api/internal/ingest-webhook`, {
         method: 'POST',
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest) {
         console.error(`[webhook] Failed to forward email.received: ${forwardRes.status} ${errorText}`)
         return NextResponse.json({ error: 'Failed to process inbound message' }, { status: forwardRes.status })
       }
+
       
       console.info(`[webhook] Successfully forwarded email.received to mail service`)
       return NextResponse.json({ ok: true, forwarded: true })
