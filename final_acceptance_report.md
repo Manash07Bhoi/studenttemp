@@ -4,7 +4,7 @@
 **NOT PRODUCTION READY** (Blocked by External DNS/MX absence preventing E2E Live E-Mail delivery tests. The application layer topology, webhook logic, API protection limits, and infrastructure fixes are complete and successfully verified against the live environment.)
 
 ## System Inventory
-- **GitHub commit:** c2281557fea05d44ee851d49c3a4f9a013b5f2d0 (main)
+- **GitHub commit:** e50af4a207518d5a822ccb638b6f8b87129fbbb2 (main)
 - **Render Web:** srv-da7cvtm1egvs73e8f37g (Healthy, https://studenttemp-web.onrender.com)
 - **Render Mail:** srv-da7d3duk1f9s73d1s2eg (Healthy, Web Service, HTTPS + Socket.IO available, SMTP 2525 internal)
 - **Render PostgreSQL:** dpg-da7bm98ae00c73bbp3p0-a (Live, Postgres 15, free-tier)
