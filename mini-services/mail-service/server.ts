@@ -76,11 +76,14 @@ const ALLOWED_SOCKET_ORIGINS = (process.env.PUBLIC_BASE_URL || '')
     'http://127.0.0.1:3000',
     // Published testing URL
     'https://studentemp.space-z.ai',
+    'https://studenttemp-web.onrender.com',
   ])
 
 import express from 'express';
 const app = express();
 app.use(express.json());
+app.get('/', (req, res) => res.json({ status: 'ok', service: 'studenttemp-mail' }));
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Internal broadcast endpoint ----------
 app.post('/internal/broadcast', (req, res) => {
@@ -118,7 +121,7 @@ app.post('/internal/broadcast', (req, res) => {
 
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
-  path: '/',
+  path: '/socket.io/',
   // Restrict to our origins. No more `origin: '*'` — this prevents
   // cross-origin WebSocket hijacking from malicious pages.
   cors: {

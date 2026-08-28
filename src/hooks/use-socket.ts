@@ -30,7 +30,9 @@ export function useSocket(opts: UseSocketOptions = {}) {
     // The query parameter `XTransformPort` tells Caddy which upstream to use.
     // Because the page is served over HTTPS, socket.io-client will upgrade
     // to wss:// automatically; we force websocket transport for security.
-    const socket = io('/?XTransformPort=3003', {
+    const socketUrl = process.env.NEXT_PUBLIC_MAIL_SERVICE_URL || "/?XTransformPort=3003";
+    const socket = io(socketUrl, {
+      path: "/socket.io/",
       transports: ['websocket'],
       // `secure: true` forces the wss:// scheme even if the page is on
       // a non-standard port (e.g. https://localhost:81).

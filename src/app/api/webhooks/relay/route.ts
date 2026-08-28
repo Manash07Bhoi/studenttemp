@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     eventType = 'email.received'
     // Forward the payload to the internal mail service endpoint
     try {
-      const internalMailHost = process.env.INTERNAL_MAIL_SERVICE_URL || 'http://studenttemp-mail:3003'
+      const internalMailHost = process.env.INTERNAL_MAIL_SERVICE_URL || 'https://studenttemp-mail.onrender.com'
       const internalSecret = process.env.INTERNAL_API_SECRET
       if (!internalSecret) {
         console.error('[webhook] INTERNAL_API_SECRET not set, cannot forward to mail service')
