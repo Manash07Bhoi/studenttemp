@@ -10,15 +10,21 @@ import crypto from 'crypto'
 // Verify Resend webhook signature
 function verifyResendSignature(payload: string, signature: string, timestamp: string): boolean {
   const webhookSecret = process.env.RESEND_WEBHOOK_SECRET
-  if (!webhookSecret) return false // No secret configured — reject
-  const expectedSignature = crypto
-    .createHmac('sha256', webhookSecret)
+  if (!webhookSecret) return false
+  
+  // Svix secret is base64 encoded with a 'whsec_' prefix. Resend usually provides standard strings though.
+  // Actually, Svix uses base64 standard webhook signatures.
+  let secret = webhookSecret.startsWith('whsec_') ? Buffer.from(webhookSecret.split('_')[1], 'base64') : Buffer.from(webhookSecret);
+
+  const expectedSignature = crypto.createHmac('sha256', secret as any)
     .update(`${timestamp}.${payload}`)
-    .digest('hex')
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  )
+    .digest('base64')
+
+  const sigs = signature.split(' ').map(s => s.trim().startsWith('v1,') ? s.trim().substring(3) : s.trim());
+  for (const sig of sigs) {
+    if (crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSignature))) return true;
+  }
+  return false;
 }
 
 // Verify Brevo webhook signature
