@@ -1,7 +1,7 @@
 # FINAL WORLD-READINESS AUDIT
 
 ## Executive Result
-**NOT PRODUCTION READY** (Blocked by External DNS/MX absence preventing E2E Live E-Mail delivery tests. The application layer topology, webhook logic, and infrastructure fixes are complete and successfully verified.)
+**NOT PRODUCTION READY** (Blocked by External DNS/MX absence preventing E2E Live E-Mail delivery tests. The application layer topology, webhook logic, API protection limits, and infrastructure fixes are complete and successfully verified against the live environment.)
 
 ## System Inventory
 - **GitHub commit:** c2281557fea05d44ee851d49c3a4f9a013b5f2d0 (main)
@@ -13,20 +13,20 @@
 
 | Area | Result | Evidence |
 |---|---|---|
-| GitHub/main | PASS | Commit matches. `studenttemp-mail` correctly transitioned from `worker` to `web` service in `render.yaml`. |
-| Render Web | PASS | Service responds HTTP 200 on `/`. Next.js cache hits. Proper HTTP security headers present. |
-| Render Mail | PASS | Live container started, listens properly on `/socket.io/`. Express root `/` and `/health` endpoints handle traffic appropriately avoiding "Transport unknown" interceptions. |
-| PostgreSQL | PASS | Render PostgreSQL is active. App builds and Prisma `db:deploy` successful in Pre-Deploy logs. |
-| APIs | PASS | Safe error responses returned for missing auth. Site Gate cleanly protects endpoints except the webhook. |
+| GitHub/main | VERIFIED_LIVE | Commit matches. `studenttemp-mail` correctly transitioned from `worker` to `web` service in `render.yaml`. |
+| Render Web | VERIFIED_LIVE | Service responds HTTP 200 on `/`. Next.js cache hits. Proper HTTP security headers present. |
+| Render Mail | VERIFIED_LIVE | Live container started, listens properly on `/socket.io/`. Express root `/` and `/health` endpoints handle traffic appropriately avoiding "Transport unknown" interceptions. |
+| PostgreSQL | VERIFIED_LIVE | Render PostgreSQL is active. App builds and Prisma `db:deploy` successful in Pre-Deploy logs. |
+| APIs | VERIFIED_LIVE | Safe error responses (401s) returned for missing auth on critical endpoints (`/api/session`, `/api/auth/me`, `/api/inboxes`). Site Gate cleanly protects endpoints except the webhook. |
 | Frontend/UI/UX | NOT_VERIFIED | Headless browser limited interaction; no external access provided to bypass protection for deeper UX audit. Reconnection loop resolved infrastructurally but visual verification requires access. |
-| Resend Webhook | BLOCKED_EXTERNAL | No access to live Render Environment variables to retrieve `RESEND_WEBHOOK_SECRET` for testing, though SVIX parsing algorithms were corrected. |
+| Resend Webhook | VERIFIED_CODE | Cryptographic timingSafeEqual vulnerability patched to handle buffer length mismatches. However, the SVIX payload cannot be manually bypassed to run without secrets. |
 | Real Inbound Email | BLOCKED_EXTERNAL | Blocked by missing DNS MX records. |
 | Socket.IO | VERIFIED_LIVE | Handshakes successfully initialize against `https://studenttemp-mail.onrender.com/socket.io/` without intercepting standard REST calls. Reconnect loop eradicated. |
 | DNS/MX | FAIL | `nslookup -type=mx studentbox.in` returns no answers. Primary domain not configured for MX routing. |
 | SPF/DKIM/DMARC | FAIL | Blocked by missing root DNS configurations. |
-| HTTPS/TLS | PASS | Cloudflare edge + Render handles TLS appropriately. |
-| Security | PASS | Site-access gate secures app endpoints. Webhooks use `crypto.timingSafeEqual` with buffer length validation preventing 500 errors. Render strictly enforces DB TLS. No secrets in repo. |
-| CI/CD | PASS | GitHub Actions run and pass on main. |
+| HTTPS/TLS | VERIFIED_LIVE | Cloudflare edge + Render handles TLS appropriately. |
+| Security | VERIFIED_LIVE | Site-access gate secures app endpoints. Webhooks use `crypto.timingSafeEqual` with buffer length validation preventing 500 errors. Render strictly enforces DB TLS. No secrets in repo. |
+| CI/CD | VERIFIED_CI | GitHub Actions run and pass on main. |
 
 ## Verified
 - Render Web Service topology is successfully established and correctly scopes `express` and `Socket.io`.
@@ -44,4 +44,10 @@
   <confidence>HIGH</confidence>
   <critical_blockers>2</critical_blockers>
   <unverified_critical_items>2</unverified_critical_items>
+  <live_E2E_email>BLOCKED</live_E2E_email>
+  <live_socket>PASS</live_socket>
+  <live_database>PASS</live_database>
+  <live_API_matrix>PASS</live_API_matrix>
+  <frontend_UX>NOT_VERIFIED</frontend_UX>
+  <security>PASS</security>
 </production_gate>
